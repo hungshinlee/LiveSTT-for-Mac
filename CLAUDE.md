@@ -85,6 +85,10 @@ PyObjC 的 `stopEventLoop()` 在找不到 RunLoopStopper 時走 `NSApp.terminate
 （而非用 `installInterrupt=True`）的原因：讓 Ctrl+C 也走同一條收尾路徑。
 `cleanup()` 因此必須是冪等的。
 
+同樣的原因也會吃掉標準輸出：stdout 在非 TTY 時是區塊緩衝，行程被 `terminate_()`
+結束時緩衝區不會被 flush，導致輸出重導向到檔案時整份內容憑空消失。
+`main()` 開頭因此把 stdout 設成行緩衝，`cleanup()` 結尾也明確 flush。
+
 ## 各引擎的能力差異
 
 改動與這些有關的邏輯時要記得：

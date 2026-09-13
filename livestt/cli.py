@@ -241,6 +241,14 @@ def print_banner(args, engine, convert_tw: bool) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
+    # 輸出被導向檔案時 stdout 預設是區塊緩衝，而 overlay 模式最後是由
+    # NSApp.terminate_() 在 Objective-C 層結束行程，Python 的緩衝區不會被 flush，
+    # 結果是整份輸出憑空消失。改成行緩衝，並在收尾時明確 flush。
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, OSError):
+        pass
+
     try:
         if args.list:
             show_models()
@@ -318,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
         pipeline.wait(timeout=2.0)
         engine.close()
         print("已停止")
+        sys.stdout.flush()
 
     if args.ui == "overlay":
         # overlay 的事件迴圈不會返回（見 OverlaySink.run 的說明），
