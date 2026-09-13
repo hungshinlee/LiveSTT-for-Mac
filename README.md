@@ -14,9 +14,11 @@
 ## 目錄
 
 - [三種引擎怎麼選](#三種引擎怎麼選)
+- [離線與隱私](#離線與隱私)
 - [系統需求](#系統需求)
 - [安裝](#安裝)
 - [快速開始](#快速開始)
+- [情境配方](#情境配方)
 - [引擎詳解](#引擎詳解)
 - [浮動字幕視窗](#浮動字幕視窗)
 - [翻譯](#翻譯)
@@ -60,11 +62,39 @@
 
 ---
 
+## 離線與隱私
+
+**辨識與翻譯全部在本機執行，音訊不會離開這台電腦。**
+
+精確地說：
+
+| | 需要網路嗎 |
+|---|---|
+| `apple` 引擎 | **從不**。模型內建於 macOS，且強制 `requiresOnDeviceRecognition` |
+| `whisper` / `qwen` 引擎 | 只有**首次**下載模型時；之後完全離線 |
+| `--translate-to` 翻譯 | 同上，首次下載 LLM 後即離線 |
+
+模型下載自 HuggingFace，快取在 `~/.cache/huggingface`。下載完成後可以整台機器斷網使用。
+任何時候都不會有音訊或文字被送到外部服務。
+
+---
+
 ## 系統需求
 
 - macOS，Apple Silicon（M1 以上）
 - Python 3.10+
-- 麥克風權限
+- 麥克風權限（首次執行時系統會詢問）
+
+磁碟與記憶體需求依你選用的引擎而定：
+
+| 組合 | 下載量 | 執行時記憶體 |
+|---|---|---|
+| 只用 `apple` | **0** | 極少 |
+| `apple` + 翻譯 | ~2.3 GB | ~3 GB |
+| `whisper` large-v3 | ~3 GB | ~4 GB |
+| `qwen` 1.7B + 翻譯 | ~4 GB | ~5 GB |
+
+`apple` 引擎不需要下載任何東西，在低規格機器或磁碟吃緊時是最實際的選擇。
 
 ---
 
@@ -133,7 +163,15 @@ uv run livestt --ui overlay
 
 # 字幕顯示在外接螢幕
 uv run livestt --ui overlay --screen 1
+
+# 翻譯成任何語言（三個引擎都適用）
+uv run livestt --engine apple --translate-to ja
+
+# 雙語字幕：原文與譯文並陳
+uv run livestt --engine apple --translate-to en --bilingual
 ```
+
+更多實際場合的組合見[情境配方](#情境配方)。
 
 查詢類指令：
 
@@ -141,6 +179,77 @@ uv run livestt --ui overlay --screen 1
 uv run livestt --list            # 可用引擎與模型
 uv run livestt --list-locales    # Apple 引擎支援的 63 種語言
 uv run livestt --list-devices    # 錄音裝置
+```
+
+---
+
+## 情境配方
+
+各項選項是正交的（引擎 × 輸出 × 翻譯 × 雙語），以下是幾個實際場合的組合。
+
+### 中文簡報，要即時字幕
+
+最低延遲，零下載：
+
+```bash
+uv run livestt -e apple -l zh-TW -u overlay --hotwords "講者名字,專案代號"
+```
+
+### 雙語簡報，聽眾有外國人
+
+原文與英文譯文並陳，`--lines 2` 避免字幕佔太多畫面：
+
+```bash
+uv run livestt -e apple -l zh-TW --translate-to en --bilingual   -u overlay --lines 2 --glossary "客語=Hakka,聲學模型=acoustic model"
+```
+
+### 字幕顯示在外接螢幕，自己看講稿
+
+```bash
+uv run livestt -e apple -l zh-TW -u overlay --screen 1 --font-size 48
+```
+
+### 會議記錄，要最高辨識準確度
+
+不在乎延遲，只要準。搭配 `tee` 保留逐字稿：
+
+```bash
+uv run livestt -e qwen -l zh 2>&1 | tee meeting-$(date +%F).txt
+```
+
+### 台語或粵語
+
+只有 Qwen3-ASR 支援漢語方言：
+
+```bash
+uv run livestt -e qwen -l zh          # 閩南語由模型自動辨識
+uv run livestt -e qwen -l yue         # 粵語
+```
+
+### 客語
+
+需要先轉換微調模型（見[轉換自訂模型](#轉換自訂模型)），並安裝擴展漢字字體：
+
+```bash
+uv run python tools/convert.py formospeech/whisper-large-v2-taiwanese-hakka-v1
+./scripts/install_fonts.sh
+uv run livestt -m whisper-large-v2-taiwanese-hakka-v1-mlx -u overlay --font-name HanaMinA
+```
+
+### 聽英文演講，要中文字幕
+
+Whisper 內建的翻譯做不到這個方向，必須用 `--translate-to`：
+
+```bash
+uv run livestt -e apple -l en-US --translate-to zh-TW -u overlay
+```
+
+### 環境吵雜
+
+提高語音判定門檻，減少把噪音當成人聲：
+
+```bash
+uv run livestt -e apple -l zh-TW --speech-threshold 0.6 --min-speech-duration 0.3
 ```
 
 ---
@@ -181,7 +290,11 @@ uv run livestt --list-locales      # 查看全部支援語言
 >
 > 首次執行會跳出語音辨識權限對話框，請按允許。
 
-**可調整的部分：** 聲學模型本身是黑盒，不能更換或微調。但 `--hotwords` 會透過 `contextualStrings` 把辨識往指定詞彙偏置，實務上對人名與專有名詞很有效。
+**可調整的部分：** 聲學模型本身是黑盒，不能更換或微調 —— `--model` 對它沒有意義。
+但 `--hotwords` 會透過 `contextualStrings` 把辨識往指定詞彙偏置，實務上對人名與專有名詞很有效。
+
+**翻譯：** 它本身不能翻譯，但搭配 [`--translate-to`](#翻譯) 就可以，而且不限於英文。
+`apple` 的低延遲加上外接翻譯，總延遲約 0.3 秒，是即時雙語字幕最實用的組合。
 
 ### `qwen` — Qwen3-ASR
 
@@ -200,6 +313,8 @@ uv run livestt --engine qwen --language yue                     # 粵語
 | `mlx-community/Qwen3-ASR-1.7B-bf16` | ~3.4 GB（最高品質）|
 | `mlx-community/Qwen3-ASR-0.6B-8bit` | ~700 MB |
 | `mlx-community/Qwen3-ASR-0.6B-4bit` | ~400 MB（最輕量）|
+
+它同樣不能翻譯，但可搭配 [`--translate-to`](#翻譯)。
 
 ---
 
@@ -491,10 +606,19 @@ LiveSTT-for-Mac/
 │       ├── base.py         # Sink 介面
 │       ├── terminal.py     # 終端機輸出
 │       └── overlay.py      # 浮動字幕視窗
-├── tools/convert.py        # HF Whisper → MLX 轉換
-├── scripts/install_fonts.sh
+├── tools/
+│   └── convert.py          # HF Whisper → MLX 格式轉換
+├── scripts/
+│   └── install_fonts.sh    # 安裝擴展漢字字體
 ├── tests/
-└── models/                 # 轉換後的本地模型
+│   ├── test_vad.py         # 斷句狀態機
+│   ├── test_pipeline.py    # 執行緒、佇列、錯誤處理
+│   ├── test_cli.py         # 參數解析與引擎選擇
+│   ├── test_translate.py   # 提示組裝、輸出清理、術語表
+│   └── test_overlay_style.py
+├── models/                 # 轉換後的本地模型（權重不進版控）
+├── pyproject.toml
+└── CLAUDE.md               # 開發筆記與 macOS 平台陷阱
 ```
 
 架構上只有三個抽象：`STTEngine`（辨識引擎）、`Translator`（翻譯器）與 `Sink`（輸出端）。
@@ -509,7 +633,18 @@ uv pip install -e ".[all,dev]"
 uv run pytest
 ```
 
-測試不需要麥克風，也不會下載模型 —— VAD 用假的偵測器、pipeline 用假的麥克風，驗證的是本專案自己的邏輯。
+測試**不需要麥克風、不下載模型**，幾秒內跑完。做法是替換掉外部相依：
+VAD 用可控的假偵測器、pipeline 用假麥克風與假引擎、翻譯測提示組裝與輸出清理。
+驗證的是本專案自己的邏輯，而不是第三方模型的行為。
+
+需要真實音訊做手動驗證時，用 macOS 內建的 `say` 產生，不要把音訊檔放進 repo：
+
+```bash
+say -v Meijia -o /tmp/test.aiff "今天天氣很好"
+ffmpeg -y -i /tmp/test.aiff -ar 16000 -ac 1 -c:a pcm_s16le /tmp/test.wav
+```
+
+開發時的注意事項與 macOS 平台陷阱記錄在 [CLAUDE.md](CLAUDE.md)。
 
 ---
 
@@ -536,6 +671,34 @@ uv run pytest
 
 - 換更快的引擎（`apple` 最快）或更小的模型
 - 縮短 `--silence-duration`，讓句子切得更短
+
+**翻譯結果多了原文沒有的內容**
+
+LLM 在辨識結果破碎時（環境吵雜、句子被 VAD 切斷）可能自行補完。可以：
+
+- 用 `--bilingual` 同時顯示原文，隨時看得出譯文有沒有偏離
+- 加大 `--silence-duration`，讓句子切得完整一些
+- 用 `--glossary` 釘住關鍵術語
+
+**翻譯模型下載很慢或中斷**
+
+模型來自 HuggingFace，快取在 `~/.cache/huggingface`。中斷後重跑會續傳。
+想先下載小一點的模型試試：
+
+```bash
+uv run livestt --translate-to en --translate-model mlx-community/Qwen3-1.7B-4bit
+```
+
+**記憶體吃緊**
+
+- 改用 `apple` 引擎（不需下載、佔用極少）
+- 翻譯改用 `mlx-community/Qwen3-1.7B-4bit`
+- Qwen3-ASR 改用 `0.6B-4bit`
+
+**`--task translate` 說不支援**
+
+只有 `whisper` 有內建翻譯。其他引擎請改用 `--translate-to`，
+它三個引擎都能用而且不限英文。兩者不能同時指定。
 
 **顯示方塊字（豆腐字）**
 

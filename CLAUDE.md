@@ -4,10 +4,17 @@
 
 ## 專案是什麼
 
-Apple Silicon Mac 上的離線即時語音轉文字。麥克風 → Silero VAD 斷句 → 辨識引擎 → 輸出。
-可選三種辨識引擎（Whisper / macOS 內建 / Qwen3-ASR），兩種輸出（終端機 / 浮動字幕視窗）。
+Apple Silicon Mac 上的離線即時語音轉文字：
 
-**這是 macOS 專用專案**，且依賴 Apple Silicon（MLX）與多個 PyObjC 框架。不必為其他平台保留相容路徑。
+```
+麥克風 → Silero VAD 斷句 → STTEngine → [Translator] → Sink
+```
+
+選項是正交的：三種辨識引擎（Whisper / macOS 內建 / Qwen3-ASR）× 兩種輸出
+（終端機 / 浮動字幕視窗）× 可選翻譯 × 可選雙語。
+
+**這是 macOS 專用專案**，依賴 Apple Silicon（MLX）與多個 PyObjC 框架。
+不必為其他平台保留相容路徑，也不要為了「以防萬一」加入 CUDA 或 Linux 分支。
 
 ## 常用指令
 
@@ -16,6 +23,25 @@ uv pip install -e ".[all,dev]"   # 安裝（含三個引擎與測試工具）
 uv run pytest                    # 跑測試（快、不需麥克風、不下載模型）
 uv run livestt --list            # 列出引擎與模型
 uv run livestt --help            # 全部參數
+uv run livestt --list-locales    # Apple 引擎支援的語言
+```
+
+手動驗證引擎時，用 `say` 產生音訊，不要把音訊檔放進 repo：
+
+```bash
+say -v Meijia -o /tmp/t.aiff "今天天氣很好"
+ffmpeg -y -i /tmp/t.aiff -ar 16000 -ac 1 -c:a pcm_s16le /tmp/t.wav
+```
+
+注意 `say` 的咬字比真人清楚，用它測出來的準確度偏樂觀。
+
+驗證浮動字幕視窗是否真的顯示（它沒有標題列，肉眼之外可以這樣確認）：
+
+```python
+import Quartz
+Quartz.CGWindowListCopyWindowInfo(
+    Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID)
+# 找 kCGWindowOwnerPID 相符者，layer 應為 1000
 ```
 
 ## 架構
@@ -144,8 +170,10 @@ ASR 輸出破碎時（吵雜、句子被切斷）LLM 特別容易自行補完內
 `tests/` 不需要麥克風、不下載模型、跑完不到五秒：
 
 - `test_vad.py` 用假的偵測器控制「哪個 frame 是語音」，測的是斷句狀態機
-- `test_pipeline.py` 用假的麥克風與引擎，測執行緒、佇列滿載、錯誤處理、關閉流程
-- `test_cli.py` 測參數解析與引擎選擇邏輯
+- `test_pipeline.py` 用假的麥克風與引擎，測執行緒、佇列滿載、錯誤處理、關閉流程、雙語
+- `test_cli.py` 測參數解析、引擎選擇、簡繁轉換判斷、查詢指令
+- `test_translate.py` 測提示組裝、LLM 輸出清理、術語表解析
+- `test_overlay_style.py` 測字幕視窗的樣式計算與顏色解析（不建立視窗）
 
 新增邏輯時沿用這個做法：**測我們自己寫的邏輯，不要測第三方模型的行為**。
 需要真實音訊時可以用 macOS 內建的 `say` 產生，不要在 repo 裡塞音訊檔。
@@ -154,5 +182,24 @@ ASR 輸出破碎時（吵雜、句子被切斷）LLM 特別容易自行補完內
 
 - 註解與 docstring 用**繁體中文**，與既有程式碼一致
 - 註解說明「為什麼」，不要複述程式碼在做什麼
-- 使用者看得到的訊息（錯誤、提示）也用繁體中文，錯誤訊息要附上可執行的解法
+- 使用者看得到的訊息（錯誤、提示）也用繁體中文，
+  錯誤訊息要附上**可執行的解法**（該改哪個系統設定、該下哪個指令）
 - 型別註記用 `from __future__ import annotations` 搭配新式語法（`str | None`）
+- 引擎與翻譯器的相依套件一律**延遲 import**，放在 `prepare()` 裡
+
+### Commit
+
+沿用既有格式：conventional commit 前綴 + 繁體中文說明。
+破壞性變更用 `!`（例如 `refactor!:`）。訊息本文說明**為什麼**這樣改，
+不要只列出改了哪些檔案 —— 那 diff 已經講得很清楚了。
+
+## 容易誤判的地方
+
+- **不要因為 `--task translate` 存在就以為所有引擎都能翻譯。**
+  它是 Whisper 的內建能力，只能翻成英文。跨引擎的翻譯走 `--translate-to`。
+- **不要把 `--model` 套用到 Apple 引擎。** 它沒有模型可選，
+  註冊表的 `_apple()` 會主動丟掉這個參數。
+- **不要在 pipeline 之外做音訊格式轉換。** float32/16 kHz/單聲道的正規化
+  統一在 pipeline 邊界完成，引擎收到的一律是這個格式。
+- **不要為了讓測試通過而放寬斷言。** VAD 的 frame 數計算用 `round`，
+  測試的期待值也要用 `round`，不要改成剛好能過的數字。
