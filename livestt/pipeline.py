@@ -28,6 +28,8 @@ class Pipeline:
         convert_tw: bool = False,
         device: int | None = None,
         translator: Translator | None = None,
+        bilingual: bool = False,
+        convert_original: bool = False,
     ) -> None:
         self.engine = engine
         self.sink = sink
@@ -35,6 +37,10 @@ class Pipeline:
         self.convert_tw = convert_tw
         self.device = device
         self.translator = translator
+        # 雙語：同時顯示辨識原文與譯文
+        self.bilingual = bilingual and translator is not None
+        # 原文的簡繁轉換獨立判斷：譯文看目標語言，原文看辨識語言
+        self.convert_original = convert_original
 
         self._queue: queue.Queue[bytes] = queue.Queue(maxsize=MAX_PENDING)
         self._stop = threading.Event()
@@ -91,9 +97,16 @@ class Pipeline:
                 )
 
                 text = self.engine.transcribe(pcm_to_float32(audio_bytes))
+                original = None
 
                 if text and self.translator is not None:
                     self.sink.on_status("⏳ 翻譯中…")
+                    if self.bilingual:
+                        original = (
+                            to_taiwan_traditional(text)
+                            if self.convert_original
+                            else text
+                        )
                     text = self.translator.translate(text)
 
                 # 簡繁轉換放在最後，作用對象是實際要顯示的文字
@@ -101,7 +114,7 @@ class Pipeline:
                     text = to_taiwan_traditional(text)
 
                 if text:
-                    self.sink.on_text(text)
+                    self.sink.on_text(text, original)
                 else:
                     self.sink.on_status("🎤 等待說話…")
             except Exception as exc:

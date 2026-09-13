@@ -10,6 +10,10 @@ from dataclasses import dataclass
 import AppKit
 from AppKit import (
     NSApplication,
+    NSFontAttributeName,
+    NSForegroundColorAttributeName,
+    NSMutableParagraphStyle,
+    NSParagraphStyleAttributeName,
     NSApplicationActivationPolicyAccessory,
     NSBackingStoreBuffered,
     NSColor,
@@ -22,6 +26,7 @@ from AppKit import (
     NSWindow,
     NSWindowStyleMaskBorderless,
 )
+from Foundation import NSMutableAttributedString
 from PyObjCTools import AppHelper
 
 from .base import Sink
@@ -53,6 +58,17 @@ class OverlayStyle:
     line_height: float = 1.3
     text_color: str = "white"
     background: tuple[float, float, float] = (0.1, 0.1, 0.1)
+    #: 雙語模式：原文與譯文一起顯示，原文較小且較淡
+    bilingual: bool = False
+
+    @property
+    def lines_per_entry(self) -> int:
+        return 2 if self.bilingual else 1
+
+    @property
+    def original_font_size(self) -> float:
+        """原文字級。比譯文小，讓譯文成為視覺重點。"""
+        return max(12.0, self.font_size * 0.72)
 
 
 def _color(name: str) -> tuple[float, float, float]:
@@ -74,7 +90,7 @@ class OverlaySink(Sink):
 
     def __init__(self, style: OverlayStyle | None = None) -> None:
         self.style = style or OverlayStyle()
-        self._lines: list[str] = []
+        self._lines: list[tuple[str, str | None]] = []
         self._window = None
         self._label = None
         self._on_quit = None
@@ -101,7 +117,10 @@ class OverlaySink(Sink):
 
         frame = screen.frame()
         width = frame.size.width * style.width_ratio
-        height = int(style.font_size * style.line_height * style.max_lines + 30)
+        entry_height = style.font_size * style.line_height
+        if style.bilingual:
+            entry_height += style.original_font_size * style.line_height
+        height = int(entry_height * style.max_lines + 30)
         x = frame.origin.x + (frame.size.width - width) / 2
         y = frame.origin.y + style.bottom_margin
 
@@ -135,19 +154,31 @@ class OverlaySink(Sink):
             font = NSFont.fontWithName_size_(style.font_name, style.font_size)
             if font is None:
                 print(f"⚠️ 找不到字體 '{style.font_name}'，改用系統字體")
-        label.setFont_(font or NSFont.boldSystemFontOfSize_(style.font_size))
+        self._font = font or NSFont.boldSystemFontOfSize_(style.font_size)
+        label.setFont_(self._font)
 
         red, green, blue = _color(style.text_color)
-        label.setTextColor_(
-            NSColor.colorWithCalibratedRed_green_blue_alpha_(red, green, blue, 1.0)
+        self._text_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(
+            red, green, blue, 1.0
         )
+        # 原文用同色但更淡，避免喧賓奪主
+        self._original_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(
+            red, green, blue, 0.62
+        )
+        if style.font_name:
+            self._original_font = NSFont.fontWithName_size_(
+                style.font_name, style.original_font_size
+            ) or NSFont.systemFontOfSize_(style.original_font_size)
+        else:
+            self._original_font = NSFont.systemFontOfSize_(style.original_font_size)
+        label.setTextColor_(self._text_color)
         label.setBackgroundColor_(NSColor.clearColor())
         label.setBezeled_(False)
         label.setEditable_(False)
         label.setSelectable_(False)
         label.setAlignment_(NSTextAlignmentCenter)
         label.setUsesSingleLineMode_(False)
-        label.setMaximumNumberOfLines_(style.max_lines)
+        label.setMaximumNumberOfLines_(style.max_lines * style.lines_per_entry)
         label.setStringValue_(WAITING_TEXT)
 
         window.contentView().addSubview_(label)
@@ -158,16 +189,63 @@ class OverlaySink(Sink):
 
     # ---- Sink ------------------------------------------------------------
 
+    def _paragraph_style(self):
+        paragraph = NSMutableParagraphStyle.alloc().init()
+        paragraph.setAlignment_(NSTextAlignmentCenter)
+        return paragraph
+
+    def _build_attributed(self):
+        """把歷史組成一段富文字，原文與譯文各有自己的字級與濃度。"""
+        paragraph = self._paragraph_style()
+        result = NSMutableAttributedString.alloc().init()
+
+        for index, (text, original) in enumerate(self._lines):
+            if index:
+                result.appendAttributedString_(
+                    NSMutableAttributedString.alloc().initWithString_("\n")
+                )
+            if original:
+                result.appendAttributedString_(
+                    NSMutableAttributedString.alloc().initWithString_attributes_(
+                        original + "\n",
+                        {
+                            NSFontAttributeName: self._original_font,
+                            NSForegroundColorAttributeName: self._original_color,
+                            NSParagraphStyleAttributeName: paragraph,
+                        },
+                    )
+                )
+            result.appendAttributedString_(
+                NSMutableAttributedString.alloc().initWithString_attributes_(
+                    text,
+                    {
+                        NSFontAttributeName: self._font,
+                        NSForegroundColorAttributeName: self._text_color,
+                        NSParagraphStyleAttributeName: paragraph,
+                    },
+                )
+            )
+        return result
+
     def _render(self, text: str) -> None:
+        """顯示單行狀態訊息。"""
         if self._label is None:
             return
         AppHelper.callAfter(lambda: self._label.setStringValue_(text))
 
-    def on_text(self, text: str) -> None:
-        self._lines.append(text)
-        # 只留最近幾行，最新的在最下面
+    def _render_history(self) -> None:
+        if self._label is None:
+            return
+        attributed = self._build_attributed()
+        AppHelper.callAfter(
+            lambda: self._label.setAttributedStringValue_(attributed)
+        )
+
+    def on_text(self, text: str, original: str | None = None) -> None:
+        self._lines.append((text, original))
+        # 只留最近幾句，最新的在最下面
         del self._lines[: -self.style.max_lines]
-        self._render("\n".join(self._lines))
+        self._render_history()
 
     def on_status(self, message: str) -> None:
         # 已經有字幕時不要被狀態訊息蓋掉，狀態只在還沒有內容時顯示

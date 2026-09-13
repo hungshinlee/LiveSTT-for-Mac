@@ -11,8 +11,13 @@ class Sink(ABC):
     """辨識結果的顯示端。"""
 
     @abstractmethod
-    def on_text(self, text: str) -> None:
-        """收到一句辨識結果。"""
+    def on_text(self, text: str, original: str | None = None) -> None:
+        """收到一句結果。
+
+        Args:
+            text: 要顯示的主要文字（有翻譯時是譯文）。
+            original: 雙語模式下的原文；不顯示原文時為 None。
+        """
 
     def on_status(self, message: str) -> None:
         """狀態訊息（等待中、辨識中、佇列堆積等），可被後續訊息覆蓋。"""

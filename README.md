@@ -221,7 +221,7 @@ uv run livestt --ui overlay --engine apple --language zh-TW   # 低延遲組合
 | `--screen` | 顯示在第幾個螢幕（0 為主螢幕）| `0` |
 | `--font-size` | 字體大小 | `36` |
 | `--font-name` | 字體名稱，如 `HanaMinA` | 系統字體 |
-| `--lines` | 顯示行數，最新的在最下面 | `3` |
+| `--lines` | 顯示句數，最新的在最下面（雙語時每句佔兩行）| `3` |
 | `--color` | `white`／`yellow`／`green`／`cyan`／`orange`／`pink`，或 `#RRGGBB` | `white` |
 | `--opacity` | 背景透明度 0.0–1.0 | `0.85` |
 | `--width-ratio` | 視窗寬度佔螢幕比例 | `0.8` |
@@ -251,6 +251,28 @@ uv run livestt -e apple -l en-US --translate-to zh-TW
 # 搭配浮動字幕視窗，做雙語簡報
 uv run livestt -e apple -l zh-TW --translate-to en -u overlay
 ```
+
+### 雙語字幕
+
+`--bilingual` 讓原文與譯文同時顯示，適合雙語簡報或語言教學。**預設關閉。**
+
+```bash
+uv run livestt -e apple -l zh-TW --translate-to en --bilingual -u overlay
+```
+
+字幕視窗中原文在上、字級較小且較淡；譯文在下、字級完整 —— 讓譯文成為視覺重點，
+原文則作為對照。視窗高度會自動加大以容納兩行。終端機模式下原文以灰色顯示。
+
+```
+🎙 這次簡報會談到聲學模型與客語轉譯的部分
+📝 This briefing covers the acoustic model and Hakka translation.
+```
+
+`--lines N` 在雙語模式下仍代表 **N 句**（而非 N 行），所以 `--lines 2` 會顯示
+兩句、共四行。
+
+> `--bilingual` 需要搭配 `--translate-to`。Whisper 內建的 `--task translate`
+> 只會輸出英文譯文、取不到原文，因此無法雙語顯示（指定了會直接報錯）。
 
 ### 術語表
 
@@ -375,6 +397,7 @@ uv run livestt --silence-duration 0.4 --speech-threshold 0.6
 | `--translate-to` | | 翻譯成指定語言（`en`、`ja`、`zh-TW`…）| 不翻譯 |
 | `--translate-model` | | 翻譯用的 LLM | Qwen3-4B-Instruct |
 | `--glossary` | | 術語表 `原文=譯文`，或檔案路徑 | 無 |
+| `--bilingual` | | 原文與譯文一起顯示（需 `--translate-to`）| 關閉 |
 | `--traditional` | | `auto`／`on`／`off` | `auto` |
 | `--device` | | 錄音裝置編號 | 系統預設 |
 

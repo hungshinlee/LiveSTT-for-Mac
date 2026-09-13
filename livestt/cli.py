@@ -24,6 +24,7 @@ EPILOG = """\
   livestt --hotwords 客語,聲學模型,轉譯      提高特定詞彙的辨識率
   livestt -e apple --translate-to ja        中文語音 → 日文字幕
   livestt -e apple --translate-to zh-TW -l en   英文語音 → 繁中字幕
+  livestt -e apple --translate-to en --bilingual  雙語字幕，原文與譯文並陳
 
 翻譯的兩條路：
   --task translate    Whisper 內建，單次推論較省資源，但只能翻成英文
@@ -89,6 +90,11 @@ def build_parser() -> argparse.ArgumentParser:
     core.add_argument(
         "--translate-model",
         help=f"翻譯用的 LLM（預設 {translate.DEFAULT_MODEL}）",
+    )
+    core.add_argument(
+        "--bilingual",
+        action="store_true",
+        help="雙語顯示：原文與譯文一起顯示。需搭配 --translate-to",
     )
     core.add_argument(
         "--glossary",
@@ -263,6 +269,8 @@ def print_banner(args, engine, convert_tw: bool, translator=None) -> None:
     print(f"語言：{args.language or '自動偵測'}")
     if translator is not None:
         print(f"翻譯：{translator.describe()}")
+        if args.bilingual:
+            print("顯示：雙語（原文 + 譯文）")
     if convert_tw:
         print("簡繁轉換：✓ 臺灣正體（OpenCC s2twp）")
     print("-" * 56)
@@ -302,6 +310,13 @@ def main(argv: list[str] | None = None) -> int:
             show_devices()
             return 0
 
+        if args.bilingual and not args.translate_to:
+            raise ValueError(
+                "--bilingual 需要搭配 --translate-to。\n"
+                "   Whisper 內建的 --task translate 只會輸出英文譯文，"
+                "取不到原文，因此無法雙語顯示。"
+            )
+
         if args.translate_to and args.task == "translate":
             raise ValueError(
                 "--task translate 與 --translate-to 不能同時使用。\n"
@@ -326,13 +341,16 @@ def main(argv: list[str] | None = None) -> int:
                 glossary=translate.parse_glossary(args.glossary),
             )
 
-        convert_tw = (
-            wants_traditional(
+        if args.traditional == "auto":
+            convert_tw = wants_traditional(
                 args.engine, args.model, args.language, args.task, args.translate_to
             )
-            if args.traditional == "auto"
-            else args.traditional == "on"
-        )
+            # 原文是辨識結果，判斷時不看翻譯目標
+            convert_original = wants_traditional(
+                args.engine, args.model, args.language, args.task
+            )
+        else:
+            convert_tw = convert_original = args.traditional == "on"
 
         if args.ui == "overlay":
             from .ui.overlay import OverlaySink, OverlayStyle
@@ -347,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
                     font_name=args.font_name,
                     max_lines=args.lines,
                     text_color=args.color,
+                    bilingual=args.bilingual,
                 )
             )
         else:
@@ -368,6 +387,8 @@ def main(argv: list[str] | None = None) -> int:
             convert_tw=convert_tw,
             device=args.device,
             translator=translator,
+            bilingual=args.bilingual,
+            convert_original=convert_original,
         )
 
     except (EngineError, ValueError) as exc:

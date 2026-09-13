@@ -122,6 +122,13 @@ PyObjC 的 `stopEventLoop()` 在找不到 RunLoopStopper 時走 `NSApp.terminate
 LLM 輸出需要清洗：它偶爾會加引號、「Translation:」前綴，或在後面多附一段解釋。
 `_clean()` 負責這件事，改動時記得 `tests/test_translate.py` 有對應的案例。
 
+`--bilingual` 讓 `Sink.on_text(text, original)` 的第二個參數帶上原文。
+兩段文字的簡繁轉換**各自判斷**：譯文看翻譯目標語言，原文看辨識語言，
+因此 `cli.main()` 會算出 `convert_tw` 與 `convert_original` 兩個旗標。
+字幕視窗在雙語模式下改用 `NSAttributedString` 才能讓兩行有不同字級與濃度，
+`max_lines` 在此代表**句數**而非顯示行數，視窗高度與 `setMaximumNumberOfLines_`
+都要乘上 `lines_per_entry`。
+
 `max_tokens` 隨輸入長度縮放。固定值會截斷長句，給太大則讓模型有空間開始胡言亂語 ——
 ASR 輸出破碎時（吵雜、句子被切斷）LLM 特別容易自行補完內容。
 

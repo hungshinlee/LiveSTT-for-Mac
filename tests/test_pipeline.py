@@ -47,11 +47,13 @@ class FakeVAD:
 class RecordingSink(Sink):
     def __init__(self):
         self.texts = []
+        self.originals = []
         self.errors = []
         self.statuses = []
 
-    def on_text(self, text):
+    def on_text(self, text, original=None):
         self.texts.append(text)
+        self.originals.append(original)
 
     def on_status(self, message):
         self.statuses.append(message)
@@ -155,6 +157,82 @@ def test_engine_error_does_not_kill_the_loop():
 
     assert sink.errors and "這句壞了" in sink.errors[0]
     assert sink.texts == ["後續正常"]
+
+
+class UpperTranslator:
+    """假翻譯器：把文字轉大寫，方便辨認哪一段是譯文。"""
+
+    def prepare(self):
+        pass
+
+    def translate(self, text):
+        return text.upper()
+
+    def close(self):
+        pass
+
+
+def test_translator_output_replaces_text():
+    sink = RecordingSink()
+    pipe = Pipeline(CountingEngine(), sink, VADConfig(), translator=UpperTranslator())
+    pipe.start()
+
+    assert run_until(lambda: sink.texts)
+    pipe.stop()
+    pipe.wait(timeout=3.0)
+
+    assert sink.texts[0] == "句子 1".upper()
+    assert sink.originals[0] is None  # 未開雙語時不送原文
+
+
+def test_bilingual_passes_original_alongside_translation():
+    sink = RecordingSink()
+    pipe = Pipeline(
+        CountingEngine(), sink, VADConfig(),
+        translator=UpperTranslator(), bilingual=True,
+    )
+    pipe.start()
+
+    assert run_until(lambda: sink.texts)
+    pipe.stop()
+    pipe.wait(timeout=3.0)
+
+    assert sink.texts[0] == "句子 1".upper()
+    assert sink.originals[0] == "句子 1"
+
+
+def test_bilingual_without_translator_is_inert():
+    """沒有翻譯器就沒有原文可言，不該送出重複內容。"""
+    sink = RecordingSink()
+    pipe = Pipeline(CountingEngine(), sink, VADConfig(), bilingual=True)
+    pipe.start()
+
+    assert run_until(lambda: sink.texts)
+    pipe.stop()
+    pipe.wait(timeout=3.0)
+
+    assert sink.originals[0] is None
+
+
+def test_original_uses_its_own_conversion_setting(monkeypatch):
+    """譯文看目標語言、原文看辨識語言，兩者的簡繁轉換各自獨立。"""
+    monkeypatch.setattr(
+        pipeline_module, "to_taiwan_traditional", lambda text: f"繁[{text}]"
+    )
+    sink = RecordingSink()
+    pipe = Pipeline(
+        CountingEngine(), sink, VADConfig(),
+        translator=UpperTranslator(), bilingual=True,
+        convert_tw=False, convert_original=True,
+    )
+    pipe.start()
+
+    assert run_until(lambda: sink.texts)
+    pipe.stop()
+    pipe.wait(timeout=3.0)
+
+    assert sink.originals[0].startswith("繁[")   # 原文有轉
+    assert not sink.texts[0].startswith("繁[")   # 譯文沒轉
 
 
 def test_queue_drops_oldest_when_recognition_falls_behind():
