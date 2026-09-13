@@ -48,7 +48,7 @@ def _qwen(**kwargs) -> STTEngine:
 ENGINES: dict[str, EngineSpec] = {
     "whisper": EngineSpec(
         name="whisper",
-        summary="MLX Whisper，唯一支援翻譯成英文，可用本地微調模型",
+        summary="MLX Whisper，內建翻成英文的能力，可用本地微調模型",
         supports_translate=True,
         extra="whisper",
         factory=_whisper,

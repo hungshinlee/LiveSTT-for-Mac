@@ -8,6 +8,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import translate
 from .engines import DEFAULT_ENGINE, ENGINES, EngineError, create_engine
 from .pipeline import Pipeline
 from .vad import VADConfig
@@ -21,6 +22,12 @@ EPILOG = """\
   livestt --ui overlay                     浮動字幕視窗，適合全螢幕簡報
   livestt --ui overlay --screen 1          字幕顯示在第二個螢幕
   livestt --hotwords 客語,聲學模型,轉譯      提高特定詞彙的辨識率
+  livestt -e apple --translate-to ja        中文語音 → 日文字幕
+  livestt -e apple --translate-to zh-TW -l en   英文語音 → 繁中字幕
+
+翻譯的兩條路：
+  --task translate    Whisper 內建，單次推論較省資源，但只能翻成英文
+  --translate-to X    外接 LLM，三個引擎都能用，可翻成任何語言
 
 引擎比較：
   whisper   可翻譯成英文、可用微調模型（客語）。品質高，延遲較高
@@ -72,6 +79,20 @@ def build_parser() -> argparse.ArgumentParser:
     core.add_argument(
         "--hotwords",
         help="逗號分隔的熱詞，提高特定詞彙辨識率；也可給一個每行一詞的檔案路徑",
+    )
+    core.add_argument(
+        "--translate-to",
+        metavar="語言",
+        help="把辨識結果翻譯成指定語言（如 en、ja、zh-TW，或直接寫語言名稱）。"
+             "三個引擎都適用，且不限於英文",
+    )
+    core.add_argument(
+        "--translate-model",
+        help=f"翻譯用的 LLM（預設 {translate.DEFAULT_MODEL}）",
+    )
+    core.add_argument(
+        "--glossary",
+        help="術語表，格式 原文=譯文 以逗號分隔；也可給每行一組的檔案路徑",
     )
     core.add_argument(
         "--traditional",
@@ -131,22 +152,27 @@ def show_models() -> None:
 
     print("引擎：")
     for spec in ENGINES.values():
-        translate = "可翻譯" if spec.supports_translate else "僅辨識"
-        print(f"  {spec.name:<8} {translate}  {spec.summary}")
+        builtin = "內建翻譯" if spec.supports_translate else "僅辨識  "
+        print(f"  {spec.name:<8} {builtin}  {spec.summary}")
 
     print("\nWhisper 本地模型（models/，由 tools/convert.py 產生）：")
     local = whisper_mlx.local_models()
     print("\n".join(f"  • {name}" for name in local) if local else "  （無）")
 
     print("\nWhisper HuggingFace 模型（首次使用自動下載）：")
-    for repo, size, translate in whisper_mlx.KNOWN_MODELS:
-        print(f"  • {repo:<40} {size:>8}  {'翻譯 ✓' if translate else '翻譯 ✗'}")
+    for repo, size, can_translate in whisper_mlx.KNOWN_MODELS:
+        print(f"  • {repo:<40} {size:>8}  {'翻譯 ✓' if can_translate else '翻譯 ✗'}")
 
     print("\nQwen3-ASR 模型（首次使用自動下載）：")
     for repo, size in qwen_mlx.KNOWN_MODELS:
         print(f"  • {repo:<40} {size:>8}")
 
+    print("\n翻譯模型（--translate-to 時使用，首次自動下載）：")
+    for repo, size, note in translate.KNOWN_MODELS:
+        print(f"  • {repo:<44} {size:>8}  {note}")
+
     print("\nApple 引擎使用 macOS 內建模型，無須下載，也沒有模型可選。")
+    print("「僅辨識」的引擎搭配 --translate-to 一樣可以翻譯，且不限於英文。")
 
 
 def show_locales() -> None:
@@ -189,8 +215,22 @@ def parse_hotwords(value: str | None) -> list[str]:
 CHINESE_CODES = {"zh", "cmn", "yue", "nan", "hak", "wuu"}
 
 
-def wants_traditional(engine: str, model: str | None, language: str | None, task: str) -> bool:
-    """auto 模式下判斷是否要把輸出轉成臺灣繁體。"""
+def wants_traditional(
+    engine: str,
+    model: str | None,
+    language: str | None,
+    task: str,
+    translate_to: str | None = None,
+) -> bool:
+    """auto 模式下判斷是否要把最終輸出轉成臺灣繁體。
+
+    判斷依據是「畫面上實際會顯示什麼語言」，所以有翻譯時看的是目標語言，
+    而不是辨識出來的語言。
+    """
+    if translate_to:
+        # 目標若是繁體中文，仍過一次 OpenCC 當保險（LLM 偶爾會吐簡體字）
+        return translate.targets_traditional_chinese(translate_to)
+
     if task == "translate":
         return False  # 輸出是英文
 
@@ -214,13 +254,15 @@ def wants_traditional(engine: str, model: str | None, language: str | None, task
     return False
 
 
-def print_banner(args, engine, convert_tw: bool) -> None:
+def print_banner(args, engine, convert_tw: bool, translator=None) -> None:
     print("=" * 56)
     print("LiveSTT — 離線即時語音轉文字（Apple Silicon GPU）")
     print("=" * 56)
     print(f"引擎：{engine.name} — {engine.describe()}")
     print(f"任務：{'翻譯成英文' if args.task == 'translate' else '轉錄'}")
     print(f"語言：{args.language or '自動偵測'}")
+    if translator is not None:
+        print(f"翻譯：{translator.describe()}")
     if convert_tw:
         print("簡繁轉換：✓ 臺灣正體（OpenCC s2twp）")
     print("-" * 56)
@@ -260,6 +302,13 @@ def main(argv: list[str] | None = None) -> int:
             show_devices()
             return 0
 
+        if args.translate_to and args.task == "translate":
+            raise ValueError(
+                "--task translate 與 --translate-to 不能同時使用。\n"
+                "   --task translate 是 Whisper 內建的翻譯（只能翻成英文），\n"
+                "   --translate-to 是外接 LLM 翻譯（可翻成任何語言），兩者擇一。"
+            )
+
         hotwords = parse_hotwords(args.hotwords)
         engine = create_engine(
             args.engine,
@@ -269,8 +318,18 @@ def main(argv: list[str] | None = None) -> int:
             hotwords=hotwords,
         )
 
+        translator = None
+        if args.translate_to:
+            translator = translate.QwenLMTranslator(
+                target=args.translate_to,
+                model=args.translate_model,
+                glossary=translate.parse_glossary(args.glossary),
+            )
+
         convert_tw = (
-            wants_traditional(args.engine, args.model, args.language, args.task)
+            wants_traditional(
+                args.engine, args.model, args.language, args.task, args.translate_to
+            )
             if args.traditional == "auto"
             else args.traditional == "on"
         )
@@ -295,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
 
             sink = TerminalSink()
 
-        print_banner(args, engine, convert_tw)
+        print_banner(args, engine, convert_tw, translator)
 
         pipeline = Pipeline(
             engine=engine,
@@ -308,6 +367,7 @@ def main(argv: list[str] | None = None) -> int:
             ),
             convert_tw=convert_tw,
             device=args.device,
+            translator=translator,
         )
 
     except (EngineError, ValueError) as exc:
@@ -325,6 +385,8 @@ def main(argv: list[str] | None = None) -> int:
         pipeline.stop()
         pipeline.wait(timeout=2.0)
         engine.close()
+        if translator is not None:
+            translator.close()
         print("已停止")
         sys.stdout.flush()
 

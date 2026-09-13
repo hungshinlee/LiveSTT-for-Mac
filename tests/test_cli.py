@@ -110,3 +110,25 @@ class TestTraditionalLanguageGuard:
     def test_auto_detect_still_converted(self):
         """沒指定語言時可能偵測到中文，仍要轉。"""
         assert wants_traditional("qwen", None, None, "transcribe")
+
+
+class TestQueryCommands:
+    """--list 等查詢指令要能跑完不拋例外（曾因區域變數遮蔽模組而壞掉）。"""
+
+    def test_list_models_runs(self, capsys):
+        from livestt.cli import show_models
+
+        show_models()
+        out = capsys.readouterr().out
+        assert "引擎：" in out
+        assert "翻譯模型" in out
+
+    def test_list_via_main(self):
+        from livestt.cli import main
+
+        assert main(["--list"]) == 0
+
+    def test_list_devices_via_main(self):
+        from livestt.cli import main
+
+        assert main(["--list-devices"]) == 0

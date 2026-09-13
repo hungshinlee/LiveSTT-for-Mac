@@ -11,6 +11,7 @@ import threading
 from .audio import Microphone, pcm_to_float32
 from .engines.base import STTEngine
 from .postprocess import to_taiwan_traditional
+from .translate import Translator
 from .ui.base import Sink
 from .vad import SileroVAD, VADConfig
 
@@ -26,12 +27,14 @@ class Pipeline:
         vad_config: VADConfig,
         convert_tw: bool = False,
         device: int | None = None,
+        translator: Translator | None = None,
     ) -> None:
         self.engine = engine
         self.sink = sink
         self.vad_config = vad_config
         self.convert_tw = convert_tw
         self.device = device
+        self.translator = translator
 
         self._queue: queue.Queue[bytes] = queue.Queue(maxsize=MAX_PENDING)
         self._stop = threading.Event()
@@ -64,6 +67,9 @@ class Pipeline:
         self.sink.on_status("⏳ 正在載入模型…")
         try:
             self.engine.prepare()
+            if self.translator is not None:
+                self.sink.on_status("⏳ 正在載入翻譯模型…")
+                self.translator.prepare()
         except Exception as exc:
             self.sink.on_error(str(exc))
             self._stop.set()
@@ -85,6 +91,12 @@ class Pipeline:
                 )
 
                 text = self.engine.transcribe(pcm_to_float32(audio_bytes))
+
+                if text and self.translator is not None:
+                    self.sink.on_status("⏳ 翻譯中…")
+                    text = self.translator.translate(text)
+
+                # 簡繁轉換放在最後，作用對象是實際要顯示的文字
                 if self.convert_tw:
                     text = to_taiwan_traditional(text)
 

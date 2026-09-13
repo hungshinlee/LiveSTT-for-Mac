@@ -19,6 +19,7 @@
 - [快速開始](#快速開始)
 - [引擎詳解](#引擎詳解)
 - [浮動字幕視窗](#浮動字幕視窗)
+- [翻譯](#翻譯)
 - [熱詞](#熱詞)
 - [語音偵測參數](#語音偵測參數)
 - [自動簡繁轉換](#自動簡繁轉換)
@@ -36,7 +37,8 @@
 
 | | `whisper` | `apple` | `qwen` |
 |---|---|---|---|
-| **翻譯成英文** | ✅ **唯一支援** | ❌ | ❌ |
+| **內建翻譯**（`--task translate`）| ✅ 唯一支援，但只能翻成英文 | ❌ | ❌ |
+| **外接 LLM 翻譯**（`--translate-to`）| ✅ | ✅ | ✅ |
 | **中文準確度** | 良好 | 良好 | ✅ **最佳** |
 | **台語／粵語** | ❌ | 粵語（`yue-CN`） | ✅ **閩南語、粵語、吳語等 22 種方言** |
 | **客語** | ✅ 可用微調模型 | ❌ | ❌ |
@@ -52,7 +54,9 @@
 - **中文、台語、粵語要最準** → `qwen`
 - **要翻譯成英文，或要用客語模型** → `whisper`
 
-> **重要限制：** 只有 Whisper 能翻譯，而且**只能翻成英文**（這是模型訓練方式決定的，中文→日文之類的方向它做不到）。`apple` 與 `qwen` 是純語音辨識模型，指定 `--task translate` 會直接報錯而非默默忽略。
+> **關於翻譯：** Whisper 內建的 `--task translate` 只能翻成英文（模型訓練方式決定的）。
+> 想翻成其他語言、或想讓 `apple` / `qwen` 也能翻譯，用 [`--translate-to`](#翻譯) 外接 LLM ——
+> 三個引擎都適用，而且能翻成任何語言，包含 Whisper 做不到的「翻成中文」。
 
 ---
 
@@ -98,6 +102,7 @@ uv pip install -e ".[all]"
 uv pip install -e ".[apple]"      # 只用 macOS 內建引擎，最輕量
 uv pip install -e ".[whisper]"    # 只用 Whisper
 uv pip install -e ".[qwen]"       # 只用 Qwen3-ASR
+uv pip install -e ".[apple,translate]"   # macOS 引擎 + LLM 翻譯
 ```
 
 ### 3. 確認可以執行
@@ -224,6 +229,77 @@ uv run livestt --ui overlay --engine apple --language zh-TW   # 低延遲組合
 
 ---
 
+## 翻譯
+
+有兩條路，用途不同：
+
+| | `--task translate` | `--translate-to` |
+|---|---|---|
+| 作法 | Whisper 內建，單次推論 | 外接 Qwen3 LLM，兩段式 |
+| 目標語言 | **只能英文** | 任何語言 |
+| 可用引擎 | 只有 `whisper` | **三個都可以** |
+| 額外模型 | 不需要 | ~2.3 GB |
+| 術語控制 | 無 | ✅ `--glossary` |
+
+```bash
+# 中文語音 → 日文字幕（Whisper 做不到）
+uv run livestt -e apple -l zh-TW --translate-to ja
+
+# 英文語音 → 繁體中文字幕（Whisper 更做不到）
+uv run livestt -e apple -l en-US --translate-to zh-TW
+
+# 搭配浮動字幕視窗，做雙語簡報
+uv run livestt -e apple -l zh-TW --translate-to en -u overlay
+```
+
+### 術語表
+
+即時字幕最常見的錯誤是專有名詞。`--glossary` 可以釘死特定詞彙的譯法：
+
+```bash
+uv run livestt --translate-to en --glossary "客語=Hakka,聲學模型=acoustic model"
+
+# 詞多的話放檔案，一行一組
+uv run livestt --translate-to en --glossary glossary.txt
+```
+
+這不是錦上添花。實測同一句話：
+
+| | 輸出 |
+|---|---|
+| 無術語表 | This briefing will cover the acoustic model and **Hokkien** translation… ❌ |
+| 有術語表 | This briefing will cover the acoustic model and **Hakka** translation… ✅ |
+
+模型原本把「客語」誤譯成閩南語（Hokkien），術語表零延遲成本就修正了。
+
+### 延遲
+
+M5 Max 上實測，ASR 加翻譯的**總延遲約 0.3 秒**：
+
+| 組合 | 辨識 | 翻譯 | 總計 |
+|---|---|---|---|
+| `apple` → 英文 | 0.10s | 0.19s | **0.29s** |
+| `apple` → 日文 | 0.14s | 0.20s | **0.34s** |
+
+搭 `apple` 引擎很舒服；搭 Whisper large 就要留意延遲會疊加。
+
+### 翻譯模型
+
+`--translate-model` 可更換，預設 `mlx-community/Qwen3-4B-Instruct-2507-4bit`。
+
+| 模型 | 大小 | 說明 |
+|---|---|---|
+| `mlx-community/Qwen3-4B-Instruct-2507-4bit` | ~2.3 GB | 預設，品質與速度平衡 |
+| `mlx-community/Qwen3-4B-Instruct-2507-8bit` | ~4.3 GB | 品質略佳 |
+| `mlx-community/Qwen3-1.7B-4bit` | ~1.0 GB | 更輕量，術語較易出錯 |
+| `mlx-community/Qwen3-8B-4bit` | ~4.6 GB | 品質最佳 |
+
+> **要留意的地方：** LLM 在辨識結果破碎時（環境吵雜、句子被切斷）可能自行補完內容。
+> 系統提示已要求模型不要杜撰，輸出長度上限也會隨輸入縮放，但無法完全根除。
+> 重要場合建議同時保留原文紀錄。
+
+---
+
 ## 熱詞
 
 把辨識結果往特定詞彙偏置，對人名、專有名詞、術語特別有效。
@@ -278,6 +354,7 @@ uv run livestt --silence-duration 0.4 --speech-threshold 0.6
 | Qwen3-ASR | ✅ | 中文輸出為簡體 |
 | Apple + `zh-TW`／`zh-HK` | ❌ | 本來就是繁體 |
 | Apple + `zh-CN` | ✅ | 輸出為簡體 |
+| 有 `--translate-to` | 看目標語言 | 依畫面實際顯示的語言判斷，而非辨識語言 |
 
 要強制指定：`--traditional on` 或 `--traditional off`。
 
@@ -295,6 +372,9 @@ uv run livestt --silence-duration 0.4 --speech-threshold 0.6
 | `--task` | `-t` | `transcribe`／`translate` | `transcribe` |
 | `--language` | `-l` | `zh`、`zh-TW`、`en`、`ja`、`yue`… | 自動偵測 |
 | `--hotwords` | | 逗號分隔的詞，或檔案路徑 | 無 |
+| `--translate-to` | | 翻譯成指定語言（`en`、`ja`、`zh-TW`…）| 不翻譯 |
+| `--translate-model` | | 翻譯用的 LLM | Qwen3-4B-Instruct |
+| `--glossary` | | 術語表 `原文=譯文`，或檔案路徑 | 無 |
 | `--traditional` | | `auto`／`on`／`off` | `auto` |
 | `--device` | | 錄音裝置編號 | 系統預設 |
 
@@ -377,6 +457,7 @@ LiveSTT-for-Mac/
 │   ├── audio.py            # 麥克風擷取
 │   ├── vad.py              # Silero VAD 斷句
 │   ├── postprocess.py      # OpenCC 簡繁轉換
+│   ├── translate.py        # 外接 LLM 翻譯層
 │   ├── engines/
 │   │   ├── base.py         # STTEngine 抽象介面
 │   │   ├── __init__.py     # 引擎註冊表
@@ -393,7 +474,8 @@ LiveSTT-for-Mac/
 └── models/                 # 轉換後的本地模型
 ```
 
-架構上只有兩個抽象：`STTEngine`（辨識引擎）與 `Sink`（輸出端）。新增引擎只要實作 `STTEngine` 並在 `engines/__init__.py` 的註冊表加一筆，CLI 選項與說明文字會自動跟上。
+架構上只有三個抽象：`STTEngine`（辨識引擎）、`Translator`（翻譯器）與 `Sink`（輸出端）。
+辨識與翻譯刻意分開，所以任何引擎的輸出都能再經過翻譯。新增引擎只要實作 `STTEngine` 並在 `engines/__init__.py` 的註冊表加一筆，CLI 選項與說明文字會自動跟上。
 
 ---
 

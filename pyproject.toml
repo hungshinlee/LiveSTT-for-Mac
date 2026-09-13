@@ -19,6 +19,8 @@ dependencies = [
 whisper = ["mlx-whisper"]
 apple = ["pyobjc-framework-Speech", "pyobjc-framework-AVFoundation"]
 qwen = ["mlx-audio"]
+# 外接 LLM 翻譯（--translate-to）
+translate = ["mlx-lm"]
 # 模型轉換工具（tools/convert.py）
 convert = ["safetensors", "huggingface_hub"]
 all = [
@@ -26,6 +28,7 @@ all = [
     "pyobjc-framework-Speech",
     "pyobjc-framework-AVFoundation",
     "mlx-audio",
+    "mlx-lm",
     "safetensors",
     "huggingface_hub",
 ]

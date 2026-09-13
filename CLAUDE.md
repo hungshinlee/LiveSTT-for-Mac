@@ -20,12 +20,16 @@ uv run livestt --help            # 全部參數
 
 ## 架構
 
-只有兩個抽象，其餘都是實作細節：
+三個抽象，其餘都是實作細節：
 
 - **`STTEngine`**（`livestt/engines/base.py`）— 辨識引擎。
   生命週期是 `prepare()` → 多次 `transcribe()` → `close()`。
   `prepare()` 在背景執行緒中呼叫，可以耗時數秒（載模型、要權限）。
+- **`Translator`**（`livestt/translate.py`）— 翻譯器，生命週期同上。
 - **`Sink`**（`livestt/ui/base.py`）— 輸出端。`on_text` / `on_status` / `on_error`。
+
+辨識與翻譯刻意分開：任何引擎的輸出都能再經過翻譯，
+所以 `apple` 和 `qwen` 這兩個純 ASR 模型也能做翻譯，而且不限於英文。
 
 `Pipeline`（`livestt/pipeline.py`）把兩者串起來，用生產者／消費者兩條執行緒：
 錄音執行緒永遠不阻塞，辨識慢時只會在佇列堆積。佇列滿了會丟最舊的一句，
@@ -102,10 +106,31 @@ PyObjC 的 `stopEventLoop()` 在找不到 RunLoopStopper 時走 `NSApp.terminate
 - **Qwen 認英文語言名稱**（`"Chinese"`）不是 ISO 代碼，見 `qwen_mlx.LANGUAGE_NAMES`。
   Apple 要完整 locale（`zh-TW`），Whisper 要主語言碼（`zh`）。各自在引擎內轉換。
 
+## 翻譯
+
+兩條路徑並存，語意不同，不要混為一談：
+
+- `--task translate` — Whisper 內建的多任務能力，單次推論，**只能翻成英文**
+- `--translate-to X` — 外接 Qwen3 LLM，兩段式，三個引擎都能用，可翻成任何語言
+
+兩者同時指定會報錯（在 `main()` 檢查，訊息說明兩者差異）。
+
+翻譯器用的是**非 thinking 模式**（`enable_thinking=False`）。Qwen3 的 hybrid thinking
+會讓延遲從零點幾秒暴增到數秒，即時字幕完全不能接受。2507 之後的 Instruct 模型
+沒有 thinking 也就沒有這個參數，所以 `_build_prompt()` 用 try/except 涵蓋兩種情況。
+
+LLM 輸出需要清洗：它偶爾會加引號、「Translation:」前綴，或在後面多附一段解釋。
+`_clean()` 負責這件事，改動時記得 `tests/test_translate.py` 有對應的案例。
+
+`max_tokens` 隨輸入長度縮放。固定值會截斷長句，給太大則讓模型有空間開始胡言亂語 ——
+ASR 輸出破碎時（吵雜、句子被切斷）LLM 特別容易自行補完內容。
+
 ## 簡繁轉換
 
-`--traditional auto` 的判斷在 `cli.wants_traditional()`。關鍵規則：
-**本地微調模型（例如客語）不做任何轉換**，保留模型原始輸出；翻譯任務輸出英文，也不轉。
+`--traditional auto` 的判斷在 `cli.wants_traditional()`。判斷依據是
+**畫面上實際會顯示什麼語言**，所以有 `--translate-to` 時看的是目標語言而非辨識語言。
+其餘關鍵規則：本地微調模型（例如客語）不做任何轉換，保留模型原始輸出；
+`--task translate` 輸出英文，也不轉。
 
 ## 測試
 
