@@ -1,13 +1,46 @@
 [project]
-name = "whisper-live-client-for-mac"
-version = "0.3.0"
-description = "Real-time speech transcription for Apple Silicon Mac using MLX"
+name = "livestt"
+version = "1.0.0"
+description = "Real-time, fully offline speech-to-text for Apple Silicon Macs"
+readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+
 dependencies = [
-    "mlx-whisper",
-    "pyaudio",
     "numpy",
-    "pyobjc-framework-Cocoa",
+    "pyaudio",
     "pysilero-vad",
     "opencc-python-reimplemented",
+    "pyobjc-framework-Cocoa",
 ]
+
+[project.optional-dependencies]
+# 各引擎的相依套件，按需安裝
+whisper = ["mlx-whisper"]
+apple = ["pyobjc-framework-Speech", "pyobjc-framework-AVFoundation"]
+qwen = ["mlx-audio"]
+# 模型轉換工具（tools/convert.py）
+convert = ["safetensors", "huggingface_hub"]
+all = [
+    "mlx-whisper",
+    "pyobjc-framework-Speech",
+    "pyobjc-framework-AVFoundation",
+    "mlx-audio",
+    "safetensors",
+    "huggingface_hub",
+]
+dev = ["pytest"]
+
+[project.scripts]
+livestt = "livestt.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["livestt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

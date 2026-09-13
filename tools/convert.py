@@ -7,7 +7,6 @@ import json
 import sys
 from pathlib import Path
 
-import mlx.core as mx
 import numpy as np
 from huggingface_hub import snapshot_download
 from safetensors import safe_open

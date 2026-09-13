@@ -37,7 +37,6 @@ install_hanamin() {
     if brew list --cask font-hanamin &> /dev/null; then
         echo "✓ 花園明朝已安裝"
     else
-        brew tap homebrew/cask-fonts 2>/dev/null || true
         brew install --cask font-hanamin
         echo "✓ 花園明朝安裝完成"
     fi
@@ -50,7 +49,6 @@ install_noto() {
     if brew list --cask font-noto-sans-cjk-tc &> /dev/null; then
         echo "✓ 思源黑體已安裝"
     else
-        brew tap homebrew/cask-fonts 2>/dev/null || true
         brew install --cask font-noto-sans-cjk-tc
         echo "✓ 思源黑體安裝完成"
     fi
@@ -88,9 +86,8 @@ echo "   • iTerm2: Preferences → Profiles → Text → Font"
 echo "   • Terminal.app: 偏好設定 → 描述檔 → 字體"
 echo "   選擇 '$FONT_NAME'"
 echo ""
-echo "2. 字幕視窗字體設定："
-echo "   編輯 subtitle/subtitle.py，修改 FONT_NAME："
-echo "   FONT_NAME = \"$FONT_NAME\""
+echo "2. 字幕視窗使用此字體："
+echo "   livestt --ui overlay --font-name '$FONT_NAME'"
 echo ""
-echo "3. 重新啟動終端機和應用程式以套用新字體"
+echo "3. 重新啟動終端機以套用新字體"
 echo ""

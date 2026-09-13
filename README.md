@@ -1,358 +1,447 @@
-# Whisper Live Client for Mac
+# LiveSTT for Mac
 
-專為 Apple Silicon Mac 設計的即時語音轉文字工具。使用 MLX 框架讓 Whisper 模型在本地 GPU 上執行，搭配 Silero VAD 偵測語音段落，完全離線、延遲極低。支援轉錄與翻譯成英文，辨識結果自動轉換為臺灣繁體中文，並提供可浮在全螢幕上方的即時字幕視窗，適合簡報使用。
+專為 Apple Silicon Mac 打造的**離線即時語音轉文字**工具。音訊完全不離開你的電腦，延遲低、可長時間運作，並提供可浮在全螢幕簡報之上的即時字幕視窗。
+
+提供三種辨識引擎，依場合選用：追求翻譯能力與微調模型用 Whisper，追求零延遲用 macOS 內建引擎，追求中文與方言準確度用 Qwen3-ASR。
 
 ![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-![MLX](https://img.shields.io/badge/MLX-Framework-FF6B00?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyeiIvPjwvc3ZnPg==)
+![MLX](https://img.shields.io/badge/MLX-Apple%20Silicon-FF6B00)
 ![License](https://img.shields.io/badge/license-MIT-22c55e)
 
 ---
 
 ## 目錄
 
-- [功能特色](#功能特色)
+- [三種引擎怎麼選](#三種引擎怎麼選)
 - [系統需求](#系統需求)
+- [安裝](#安裝)
 - [快速開始](#快速開始)
-- [參數說明](#參數說明)
-- [自動簡繁轉換](#自動簡繁轉換)
+- [引擎詳解](#引擎詳解)
 - [浮動字幕視窗](#浮動字幕視窗)
-- [擴展漢字支援](#擴展漢字支援)
-- [模型選擇建議](#模型選擇建議)
+- [熱詞](#熱詞)
+- [語音偵測參數](#語音偵測參數)
+- [自動簡繁轉換](#自動簡繁轉換)
+- [完整參數表](#完整參數表)
 - [轉換自訂模型](#轉換自訂模型)
+- [擴展漢字字體](#擴展漢字字體)
+- [專案結構](#專案結構)
+- [開發](#開發)
 - [疑難排解](#疑難排解)
-- [目錄結構](#目錄結構)
 - [授權](#授權)
 
 ---
 
-## 功能特色
+## 三種引擎怎麼選
 
-- 即時語音轉文字（Transcribe）
-- 即時語音翻譯成英文（Translate）
-- Apple Silicon GPU 加速（MLX 框架）
-- **自動轉換成臺灣繁體中文**（使用 mlx-community 模型時）
-- 支援 HuggingFace 上的任何 Whisper 模型
-- **浮動字幕視窗** — 適用於全螢幕簡報（Google Slides、Keynote 等）
-- **多螢幕支援** — 可指定字幕顯示在哪個螢幕
+| | `whisper` | `apple` | `qwen` |
+|---|---|---|---|
+| **翻譯成英文** | ✅ **唯一支援** | ❌ | ❌ |
+| **中文準確度** | 良好 | 良好 | ✅ **最佳** |
+| **台語／粵語** | ❌ | 粵語（`yue-CN`） | ✅ **閩南語、粵語、吳語等 22 種方言** |
+| **客語** | ✅ 可用微調模型 | ❌ | ❌ |
+| **延遲** | 較高 | ✅ **最低** | 中等 |
+| **需要下載** | 75 MB – 3 GB | ✅ **完全不用** | 0.4 – 3.4 GB |
+| **熱詞** | ⚠️ 僅提示條件化 | ✅ `contextualStrings` | ✅ 原生支援 |
+| **可微調** | ✅ 生態成熟 | ❌ | ✅ Apache-2.0 |
+| **額外設定** | 無 | 需開啟系統「聽寫」 | 無 |
+
+**一句話建議：**
+
+- **做簡報、要最即時** → `apple`
+- **中文、台語、粵語要最準** → `qwen`
+- **要翻譯成英文，或要用客語模型** → `whisper`
+
+> **重要限制：** 只有 Whisper 能翻譯，而且**只能翻成英文**（這是模型訓練方式決定的，中文→日文之類的方向它做不到）。`apple` 與 `qwen` 是純語音辨識模型，指定 `--task translate` 會直接報錯而非默默忽略。
 
 ---
 
 ## 系統需求
 
-- macOS（Apple Silicon：M1 / M2 / M3 / M4）
+- macOS，Apple Silicon（M1 以上）
 - Python 3.10+
+- 麥克風權限
 
 ---
 
-## 快速開始
+## 安裝
 
-### 1. 安裝系統依賴
-
-需要 [Homebrew](https://brew.sh)、[uv](https://github.com/astral-sh/uv)，以及音訊相關套件：
+### 1. 系統依賴
 
 ```bash
-brew install uv ffmpeg portaudio
+brew install uv portaudio ffmpeg
 ```
 
 <details>
-<summary>還沒安裝 Homebrew？展開查看</summary>
+<summary>還沒有 Homebrew？</summary>
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-安裝完後，依終端機指示將 Homebrew 加入 PATH：
-
-```bash
 echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
 eval "$(/opt/homebrew/bin/brew shellenv)"
 ```
 
 </details>
 
-### 2. 下載專案並安裝相依套件
+### 2. 專案本身
 
 ```bash
-git clone https://github.com/hungshinlee/whisper-live-client-for-mac.git
-cd whisper-live-client-for-mac
+git clone https://github.com/hungshinlee/LiveSTT-for-Mac.git
+cd LiveSTT-for-Mac
 uv venv
-uv pip install mlx-whisper pyaudio numpy pyobjc-framework-Cocoa pysilero-vad opencc-python-reimplemented
+uv pip install -e ".[all]"
 ```
 
-### 3. 開始使用
+`[all]` 會裝齊三個引擎。想省空間可以只裝需要的：
 
 ```bash
-# 最簡單：直接執行（預設模型，首次自動下載約 3 GB）
-uv run python realtime.py
+uv pip install -e ".[apple]"      # 只用 macOS 內建引擎，最輕量
+uv pip install -e ".[whisper]"    # 只用 Whisper
+uv pip install -e ".[qwen]"       # 只用 Qwen3-ASR
+```
 
-# 翻譯成英文
-uv run python realtime.py --task translate
+### 3. 確認可以執行
 
-# 指定辨識語言為中文
-uv run python realtime.py --language zh
-
-# 使用較小的模型（適合 M1/M2，約 1.5 GB）
-uv run python realtime.py --model mlx-community/whisper-medium-mlx
-
-# 列出可用模型
-uv run python realtime.py --list
+```bash
+uv run livestt --list
 ```
 
 ---
 
-## 參數說明
-
-### 基本參數
-
-| 參數 | 簡寫 | 說明 | 預設值 |
-|------|------|------|--------|
-| `--model` | `-m` | 模型名稱（HF repo 或本地路徑）| `whisper-large-v3-mlx` |
-| `--task` | `-t` | `transcribe` 或 `translate` | `transcribe` |
-| `--language` | `-l` | 語言代碼（`zh`、`en`、`ja`…）| 自動偵測 |
-| `--list` | | 列出可用模型 | |
-
-### VAD 參數（語音偵測）
-
-| 參數 | 說明 | 預設值 |
-|------|------|--------|
-| `--speech-threshold` | 語音偵測門檻（0.0–1.0），越高越嚴格 | `0.5` |
-| `--silence-duration` | 語音結束後的靜音時長（秒） | `0.6` |
-| `--min-speech-duration` | 最短語音長度（秒），太短會被忽略 | `0.2` |
-| `--speech-pad-duration` | 語音前後的緩衝（秒） | `0.1` |
-
-### VAD 調整建議
-
-| 情境 | 建議調整 |
-|------|----------|
-| 說話較快 | `--silence-duration 0.4` |
-| 環境吵雜 | `--speech-threshold 0.6` |
-| 短句被忽略 | `--min-speech-duration 0.1` |
-| 開頭被截斷 | `--speech-pad-duration 0.2` |
+## 快速開始
 
 ```bash
-# 組合多個參數
-uv run python realtime.py --silence-duration 0.4 --speech-threshold 0.6
+# 預設：Whisper + 終端機輸出
+uv run livestt
+
+# macOS 內建引擎，零下載、延遲最低
+uv run livestt --engine apple --language zh-TW
+
+# Qwen3-ASR，中文最準
+uv run livestt --engine qwen
+
+# 翻譯成英文
+uv run livestt --task translate
+
+# 浮動字幕視窗（適合全螢幕簡報）
+uv run livestt --ui overlay
+
+# 字幕顯示在外接螢幕
+uv run livestt --ui overlay --screen 1
+```
+
+查詢類指令：
+
+```bash
+uv run livestt --list            # 可用引擎與模型
+uv run livestt --list-locales    # Apple 引擎支援的 63 種語言
+uv run livestt --list-devices    # 錄音裝置
+```
+
+---
+
+## 引擎詳解
+
+### `whisper` — MLX Whisper
+
+OpenAI Whisper 跑在 MLX 上，使用 Apple Silicon GPU。**唯一能翻譯**，也是使用微調模型（例如臺灣客語）的唯一路徑。
+
+```bash
+uv run livestt --engine whisper --model mlx-community/whisper-medium-mlx
+uv run livestt --task translate                    # 任何語言 → 英文
+uv run livestt --model whisper-large-v2-taiwanese-hakka-v1-mlx   # 本地微調模型
+```
+
+| 模型 | 大小 | 翻譯 | 建議晶片 |
+|---|---|:---:|---|
+| `mlx-community/whisper-large-v3-mlx` | ~3 GB | ✅ | M3/M4/M5 |
+| `mlx-community/whisper-large-v3-turbo` | ~1.6 GB | ❌ | M2 以上 |
+| `mlx-community/whisper-medium-mlx` | ~1.5 GB | ✅ | 全部 |
+| `mlx-community/whisper-small-mlx` | ~488 MB | ✅ | 全部 |
+| `mlx-community/whisper-base-mlx` | ~145 MB | ✅ | 全部 |
+| `mlx-community/whisper-tiny-mlx` | ~75 MB | ✅ | 全部 |
+
+> `turbo` 版本不支援翻譯。
+
+### `apple` — macOS 內建語音辨識
+
+使用 macOS 內建的 `SFSpeechRecognizer`，**完全不需要下載模型**，延遲最低，支援 63 種語言（含 `zh-TW`、`zh-HK`、`yue-CN`）。強制使用裝置端辨識，音訊不會上傳。
+
+```bash
+uv run livestt --engine apple --language zh-TW
+uv run livestt --list-locales      # 查看全部支援語言
+```
+
+> **使用前必須開啟系統「聽寫」**：系統設定 → 鍵盤 → 聽寫，打開它，並確認語言清單中含有你要用的語言。沒開的話程式會在啟動時就明確報錯。
+>
+> 首次執行會跳出語音辨識權限對話框，請按允許。
+
+**可調整的部分：** 聲學模型本身是黑盒，不能更換或微調。但 `--hotwords` 會透過 `contextualStrings` 把辨識往指定詞彙偏置，實務上對人名與專有名詞很有效。
+
+### `qwen` — Qwen3-ASR
+
+阿里巴巴的開源 ASR 模型（Apache-2.0），透過 `mlx-audio` 在 Apple Silicon 上執行。**中文準確度最佳**，支援 30 種語言與 22 種漢語方言，包含**閩南語（台語）、粵語、吳語**。原生支援熱詞。
+
+```bash
+uv run livestt --engine qwen                                    # 預設 1.7B-8bit
+uv run livestt --engine qwen --model mlx-community/Qwen3-ASR-0.6B-4bit   # 更輕更快
+uv run livestt --engine qwen --language yue                     # 粵語
+```
+
+| 模型 | 大小 |
+|---|---|
+| `mlx-community/Qwen3-ASR-1.7B-8bit` | ~1.8 GB（預設，品質與速度平衡）|
+| `mlx-community/Qwen3-ASR-1.7B-4bit` | ~1.0 GB |
+| `mlx-community/Qwen3-ASR-1.7B-bf16` | ~3.4 GB（最高品質）|
+| `mlx-community/Qwen3-ASR-0.6B-8bit` | ~700 MB |
+| `mlx-community/Qwen3-ASR-0.6B-4bit` | ~400 MB（最輕量）|
+
+---
+
+## 浮動字幕視窗
+
+`--ui overlay` 會開一個浮在**所有視窗之上（包含全螢幕簡報）**的字幕列，適合 Keynote、Google Slides 等場合。視窗可以用滑鼠直接拖動。
+
+```bash
+uv run livestt --ui overlay
+uv run livestt --ui overlay --screen 1           # 顯示在外接螢幕
+uv run livestt --ui overlay --font-size 48 --lines 2 --color yellow
+uv run livestt --ui overlay --engine apple --language zh-TW   # 低延遲組合
+```
+
+樣式全部都是 CLI 參數，不需要改程式碼：
+
+| 參數 | 說明 | 預設 |
+|---|---|---|
+| `--screen` | 顯示在第幾個螢幕（0 為主螢幕）| `0` |
+| `--font-size` | 字體大小 | `36` |
+| `--font-name` | 字體名稱，如 `HanaMinA` | 系統字體 |
+| `--lines` | 顯示行數，最新的在最下面 | `3` |
+| `--color` | `white`／`yellow`／`green`／`cyan`／`orange`／`pink`，或 `#RRGGBB` | `white` |
+| `--opacity` | 背景透明度 0.0–1.0 | `0.85` |
+| `--width-ratio` | 視窗寬度佔螢幕比例 | `0.8` |
+| `--bottom-margin` | 距離螢幕底部的像素 | `50` |
+
+---
+
+## 熱詞
+
+把辨識結果往特定詞彙偏置，對人名、專有名詞、術語特別有效。
+
+```bash
+uv run livestt --hotwords "客語,聲學模型,轉譯,林口"
+
+# 詞彙多的話放成檔案，一行一個
+uv run livestt --hotwords hotwords.txt
+```
+
+同一個參數，三個引擎各自對應到最合適的機制：
+
+| 引擎 | 機制 | 效果 |
+|---|---|---|
+| `qwen` | 原生 `hotwords` | ✅ 最好 |
+| `apple` | `contextualStrings` | ✅ 好 |
+| `whisper` | `initial_prompt` 提示條件化 | ⚠️ 較弱 |
+
+> Whisper 沒有真正的熱詞 API，只能靠 prompt 誘導解碼器。詞給太多反而可能誘發幻覺，建議控制在十個以內。
+
+---
+
+## 語音偵測參數
+
+使用 [Silero VAD](https://github.com/snakers4/silero-vad) 判斷語音起訖，比單純的音量門檻準確得多，能區分人聲與鍵盤聲、冷氣聲。
+
+| 情境 | 建議調整 |
+|---|---|
+| 說話較快、希望字幕更即時 | `--silence-duration 0.4` |
+| 環境吵雜、誤觸發多 | `--speech-threshold 0.6` |
+| 短句被忽略 | `--min-speech-duration 0.1` |
+| 句首常被截掉 | `--speech-pad-duration 0.2` |
+
+```bash
+uv run livestt --silence-duration 0.4 --speech-threshold 0.6
 ```
 
 ---
 
 ## 自動簡繁轉換
 
-使用 `mlx-community/whisper*` 模型時，辨識結果會自動轉換成**臺灣繁體中文**：
+使用 [OpenCC](https://github.com/BYVoid/OpenCC) 的 `s2twp` 配置，簡體轉臺灣正體並套用臺灣慣用詞（「鼠标」→「滑鼠」、「内存」→「記憶體」）。
 
-- 簡體字 → 繁體字（「开放」→「開放」）
-- 大陸用語 → 臺灣用語（「鼠标」→「滑鼠」、「内存」→「記憶體」）
+`--traditional auto`（預設）會依引擎與模型自動判斷：
 
-使用 [OpenCC](https://github.com/BYVoid/OpenCC) 的 `s2twp` 配置。使用本地轉換的模型（如臺灣客語模型）時，不會進行簡繁轉換，以保留原始輸出。
+| 情況 | 是否轉換 | 原因 |
+|---|:---:|---|
+| Whisper + HuggingFace 模型 | ✅ | 輸出可能是簡體 |
+| Whisper + 本地微調模型 | ❌ | 保留原始輸出（例如客語）|
+| `--task translate` | ❌ | 輸出是英文 |
+| Qwen3-ASR | ✅ | 中文輸出為簡體 |
+| Apple + `zh-TW`／`zh-HK` | ❌ | 本來就是繁體 |
+| Apple + `zh-CN` | ✅ | 輸出為簡體 |
 
----
-
-## 浮動字幕視窗
-
-適用於全螢幕簡報時顯示即時字幕，視窗始終顯示在最上層（包括全螢幕應用上方）。
-
-```bash
-# 基本使用
-uv run python subtitle/subtitle.py
-
-# 翻譯成英文
-uv run python subtitle/subtitle.py --task translate
-
-# 使用較小的模型
-uv run python subtitle/subtitle.py --model mlx-community/whisper-medium-mlx
-
-# 顯示在延伸螢幕（外接螢幕，螢幕編號從 0 開始）
-uv run python subtitle/subtitle.py --screen 1
-
-# 調整 VAD 參數
-uv run python subtitle/subtitle.py --silence-duration 0.4
-```
-
-**特色：**
-- 可拖動調整位置
-- 支援多行顯示，最新字幕在最下方
-- 支援多螢幕
-
-### 自訂樣式
-
-編輯 `subtitle/subtitle.py` 開頭的設定區塊：
-
-```python
-# 視窗設定
-WINDOW_WIDTH_RATIO = 0.8      # 視窗寬度佔螢幕比例
-WINDOW_BOTTOM_MARGIN = 50     # 距離螢幕底部的距離（px）
-WINDOW_OPACITY = 0.85         # 透明度（0.0–1.0）
-
-# 文字設定
-FONT_SIZE = 36                # 字體大小
-FONT_NAME = None              # 字體名稱，None 為系統預設
-MAX_LINES = 3                 # 顯示行數
-LINE_HEIGHT = 1.3             # 行高倍率
-TEXT_COLOR = "white"          # 文字顏色：white / yellow / green / cyan
-```
-
-| 需求 | 設定 |
-|------|------|
-| 字更大 | `FONT_SIZE = 48` |
-| 字更小 | `FONT_SIZE = 28` |
-| 顯示更多行 | `MAX_LINES = 5` |
-| 只顯示一行 | `MAX_LINES = 1` |
-| 視窗更窄 | `WINDOW_WIDTH_RATIO = 0.6` |
-| 黃色字幕 | `TEXT_COLOR = "yellow"` |
-| 更透明 | `WINDOW_OPACITY = 0.7` |
+要強制指定：`--traditional on` 或 `--traditional off`。
 
 ---
 
-## 擴展漢字支援
+## 完整參數表
 
-臺灣客語使用的漢字有些在 CJK 擴展區，一般字體不支援，會顯示為方塊（豆腐字）。
+### 核心
 
-```bash
-./install_fonts.sh
-```
+| 參數 | 簡寫 | 說明 | 預設 |
+|---|---|---|---|
+| `--engine` | `-e` | `whisper`／`apple`／`qwen` | `whisper` |
+| `--ui` | `-u` | `terminal`／`overlay` | `terminal` |
+| `--model` | `-m` | 模型名稱（Apple 引擎不適用）| 依引擎 |
+| `--task` | `-t` | `transcribe`／`translate` | `transcribe` |
+| `--language` | `-l` | `zh`、`zh-TW`、`en`、`ja`、`yue`… | 自動偵測 |
+| `--hotwords` | | 逗號分隔的詞，或檔案路徑 | 無 |
+| `--traditional` | | `auto`／`on`／`off` | `auto` |
+| `--device` | | 錄音裝置編號 | 系統預設 |
 
-此腳本提供兩種字體：
+### 語音偵測
 
-| 字體 | 特色 |
-|------|------|
-| 花園明朝 (HanaMin) | 支援最多漢字，適合臺灣客語 |
-| 思源黑體 (Noto Sans CJK TC) | Google/Adobe 聯合製作，較美觀 |
+| 參數 | 說明 | 預設 |
+|---|---|---|
+| `--speech-threshold` | 語音判定門檻 0.0–1.0，越高越嚴格 | `0.5` |
+| `--silence-duration` | 靜音多久算講完一句（秒）| `0.6` |
+| `--min-speech-duration` | 最短語音長度（秒），更短視為雜訊 | `0.2` |
+| `--speech-pad-duration` | 句首保留的緩衝（秒）| `0.1` |
 
-安裝後，設定終端機或字幕視窗使用該字體：
+### 查詢
 
-**iTerm2：** Preferences → Profiles → Text → Font 選擇 `HanaMinA`
-
-**Terminal.app：** 偏好設定 → 描述檔 → 字體 → 更改 → 選擇 `HanaMinA`
-
-**字幕視窗：** 編輯 `subtitle/subtitle.py`，修改 `FONT_NAME = "HanaMinA"`
-
----
-
-## 模型選擇建議
-
-> **效能提示：** M4 以外的晶片建議使用 `medium` 或更小的模型。
-
-| 晶片 | 建議模型 |
-|------|----------|
-| M4 / M4 Pro / M4 Max | `large-v3` |
-| M3 / M3 Pro / M3 Max | `large-v3` 或 `medium` |
-| M2 / M2 Pro / M2 Max | `medium` 或 `small` |
-| M1 / M1 Pro / M1 Max | `small` 或 `base` |
-
-### 可用模型
-
-> **注意：** `turbo` 版本不支援翻譯功能。
-
-| 模型 | 大小 | 支援翻譯 | 建議晶片 |
-|------|------|:--------:|----------|
-| `mlx-community/whisper-large-v3-mlx` | ~3 GB | ✅ | M3/M4 |
-| `mlx-community/whisper-large-v3-turbo` | ~1.6 GB | ❌ | M2/M3/M4 |
-| `mlx-community/whisper-medium-mlx` | ~1.5 GB | ✅ | 全部 |
-| `mlx-community/whisper-small-mlx` | ~488 MB | ✅ | 全部 |
-| `mlx-community/whisper-base-mlx` | ~145 MB | ✅ | 全部 |
-| `mlx-community/whisper-tiny-mlx` | ~75 MB | ✅ | 全部 |
+| 參數 | 說明 |
+|---|---|
+| `--list` | 列出引擎與可用模型 |
+| `--list-locales` | 列出 Apple 引擎支援的語言 |
+| `--list-devices` | 列出錄音裝置 |
 
 ---
 
 ## 轉換自訂模型
 
-如需使用 HuggingFace 上的其他 Whisper 模型（如特定語言的微調模型），可以轉換為 MLX 格式。
+要使用 HuggingFace 上的 Whisper 微調模型（例如特定語言的模型），先轉成 MLX 格式：
 
 ```bash
-cd convert
-
-# 基本用法
-./convert.sh <hf-repo>
-
-# 強制重新轉換（模型已存在時）
-./convert.sh <hf-repo> --force
-
-# 使用 float32 精度（檔案較大但精度較高）
-./convert.sh <hf-repo> --float32
+uv run python tools/convert.py formospeech/whisper-large-v2-taiwanese-hakka-v1
 ```
-
-### 選項說明
 
 | 選項 | 說明 |
-|------|------|
-| `--output-dir` | 輸出目錄（預設：`../models`）|
-| `--dtype` | 數據類型：`float16`（預設）或 `float32` |
+|---|---|
+| `--output-dir` | 輸出目錄（預設 `models/`）|
+| `--dtype` | `float16`（預設）或 `float32` |
 | `--force` | 強制重新轉換，即使模型已存在 |
 
-### 使用轉換後的模型
+轉好之後：
 
 ```bash
-cd ..
-
-# 列出可用模型（包含本地模型）
-uv run python realtime.py --list
-
-# 使用轉換後的模型
-uv run python realtime.py --model whisper-large-v2-taiwanese-hakka-v1-mlx
+uv run livestt --list                                             # 確認有列出來
+uv run livestt --model whisper-large-v2-taiwanese-hakka-v1-mlx    # 使用它
 ```
 
-> 首次轉換會從 HuggingFace 下載原始模型，large 模型約 3 GB，請確認磁碟空間充足。若模型已轉換過，會自動跳過。
+> 首次轉換會從 HuggingFace 下載原始模型（large 約 3 GB），請確認磁碟空間。已轉換過的會自動跳過。
+>
+> 此工具只適用於 Whisper 架構。Qwen3-ASR 的轉換請用 `mlx-audio` 自己的轉換器。
+
+---
+
+## 擴展漢字字體
+
+臺灣客語有些漢字位於 CJK 擴展區（Extension B–F），一般字體不支援，會顯示成方塊（豆腐字）。
+
+```bash
+./scripts/install_fonts.sh
+```
+
+| 字體 | 特色 |
+|---|---|
+| 花園明朝（HanaMin）| 支援最多漢字，適合臺灣客語 |
+| 思源黑體（Noto Sans CJK TC）| Google／Adobe 製作，較美觀 |
+
+安裝後讓字幕視窗使用它：
+
+```bash
+uv run livestt --ui overlay --font-name HanaMinA
+```
+
+終端機則在 iTerm2 的 Preferences → Profiles → Text → Font，或 Terminal.app 的偏好設定 → 描述檔 → 字體 中設定。
+
+---
+
+## 專案結構
+
+```
+LiveSTT-for-Mac/
+├── livestt/
+│   ├── cli.py              # 命令列入口，參數解析與組裝
+│   ├── pipeline.py         # 錄音 → VAD → 辨識 → 輸出 的串接
+│   ├── audio.py            # 麥克風擷取
+│   ├── vad.py              # Silero VAD 斷句
+│   ├── postprocess.py      # OpenCC 簡繁轉換
+│   ├── engines/
+│   │   ├── base.py         # STTEngine 抽象介面
+│   │   ├── __init__.py     # 引擎註冊表
+│   │   ├── whisper_mlx.py
+│   │   ├── apple_speech.py
+│   │   └── qwen_mlx.py
+│   └── ui/
+│       ├── base.py         # Sink 介面
+│       ├── terminal.py     # 終端機輸出
+│       └── overlay.py      # 浮動字幕視窗
+├── tools/convert.py        # HF Whisper → MLX 轉換
+├── scripts/install_fonts.sh
+├── tests/
+└── models/                 # 轉換後的本地模型
+```
+
+架構上只有兩個抽象：`STTEngine`（辨識引擎）與 `Sink`（輸出端）。新增引擎只要實作 `STTEngine` 並在 `engines/__init__.py` 的註冊表加一筆，CLI 選項與說明文字會自動跟上。
+
+---
+
+## 開發
+
+```bash
+uv pip install -e ".[all,dev]"
+uv run pytest
+```
+
+測試不需要麥克風，也不會下載模型 —— VAD 用假的偵測器、pipeline 用假的麥克風，驗證的是本專案自己的邏輯。
 
 ---
 
 ## 疑難排解
 
-**麥克風沒有反應**
-- 系統設定 → 隱私與安全性 → 麥克風 → 勾選終端機
-- 系統設定 → 聲音 → 輸入 → 確認選對麥克風
+**Apple 引擎報「聽寫功能未開啟」**
 
-**確認 GPU 使用**
-- 開啟「活動監視器」→「GPU」分頁，應可看到 Python 使用 GPU
+系統設定 → 鍵盤 → 聽寫，打開它，並確認語言清單含有你要用的語言。
+
+**麥克風沒有反應**
+
+- 系統設定 → 隱私權與安全性 → 麥克風 → 勾選你的終端機程式
+- `uv run livestt --list-devices` 確認裝置，必要時用 `--device N` 指定
 
 **辨識品質不佳**
-- 說話清晰、語速適中，減少背景噪音
-- 嘗試使用更大的模型
 
-**VAD 偵測不準確**
+- 換引擎試試：中文用 `--engine qwen`，英文用 `--engine apple`
+- Whisper 換大一點的模型
+- 用 `--hotwords` 補強專有名詞
 
-```bash
-uv run python realtime.py --speech-threshold 0.6   # 環境吵雜
-uv run python realtime.py --silence-duration 0.4   # 說話較快
-```
+**字幕延遲越來越大**
+
+代表辨識速度跟不上說話速度。程式會自動丟掉最舊的句子並提示，但治本要：
+
+- 換更快的引擎（`apple` 最快）或更小的模型
+- 縮短 `--silence-duration`，讓句子切得更短
 
 **顯示方塊字（豆腐字）**
 
 ```bash
-./install_fonts.sh
+./scripts/install_fonts.sh
 ```
 
-安裝後設定終端機或字幕視窗使用 `HanaMinA` 字體。
-
-**`brew` 指令找不到**
+**`brew`／`uv` 指令找不到**
 
 ```bash
 eval "$(/opt/homebrew/bin/brew shellenv)"
-```
-
-**`uv` 指令找不到**
-
-```bash
-source ~/.zshrc
-```
-
----
-
-## 目錄結構
-
-```
-whisper-live-client-for-mac/
-├── realtime.py           # 即時語音辨識（主程式）
-├── vad.py                # Silero VAD 模組
-├── install_fonts.sh      # 安裝擴展漢字字體
-├── pyproject.toml        # 專案設定與依賴
-├── uv.lock               # 鎖定版本
-├── convert/              # 模型轉換工具
-│   ├── convert.sh
-│   └── convert.py
-├── models/               # 轉換後的本地模型
-└── subtitle/             # 浮動字幕視窗
-    └── subtitle.py
 ```
 
 ---
@@ -360,3 +449,5 @@ whisper-live-client-for-mac/
 ## 授權
 
 [MIT License](LICENSE)
+
+本專案使用的模型各有授權：Whisper（MIT）、Qwen3-ASR（Apache-2.0）、Silero VAD（MIT）。macOS 內建語音辨識依 Apple 的授權條款使用。
