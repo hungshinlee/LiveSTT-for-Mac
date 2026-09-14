@@ -132,3 +132,25 @@ class TestQueryCommands:
         from livestt.cli import main
 
         assert main(["--list-devices"]) == 0
+
+
+class TestProgressLock:
+    """mlx-audio 內部的 tqdm 預設會建立 multiprocessing 號誌，
+    而浮動字幕模式結束時行程被直接砍掉，號誌來不及釋放會產生警告。"""
+
+    def test_swaps_tqdm_lock_to_threading(self):
+        import threading
+
+        import tqdm
+
+        from livestt.engines.qwen_mlx import _use_thread_lock_for_progress
+
+        _use_thread_lock_for_progress()
+
+        assert isinstance(tqdm.tqdm.get_lock(), type(threading.RLock()))
+
+    def test_is_safe_to_call_repeatedly(self):
+        from livestt.engines.qwen_mlx import _use_thread_lock_for_progress
+
+        _use_thread_lock_for_progress()
+        _use_thread_lock_for_progress()

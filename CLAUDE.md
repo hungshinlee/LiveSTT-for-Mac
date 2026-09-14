@@ -107,6 +107,14 @@ callback 永遠不會被送達，症狀是每一句都逾時三十秒。
 `cli.py` 因此對 overlay 走不同流程：`sink.build()` → `pipeline.start()` → `sink.run()`（阻塞）。
 所有 UI 更新都透過 `AppHelper.callAfter` 丟回主執行緒。
 
+**tqdm 會建立 multiprocessing 號誌，而 overlay 模式來不及釋放它。**
+`mlx-audio` 內部用 tqdm 顯示進度，tqdm 預設的寫入鎖是 multiprocessing 鎖，
+即使進度條停用也會在 `tqdm.__new__` 階段建好。overlay 結束時行程被
+`NSApp.terminate_()` 直接砍掉，鎖來不及釋放，Python 的 resource_tracker
+就會印出「leaked semaphore objects」警告，讓使用者誤以為程式有問題。
+`qwen_mlx._use_thread_lock_for_progress()` 在載入模型前把它換成執行緒鎖。
+只有 overlay + qwen 這個組合會觸發，單獨測試任一邊都看不到。
+
 **`AppHelper.runEventLoop()` 不會返回，連 `atexit` 都不執行。**
 PyObjC 的 `stopEventLoop()` 在找不到 RunLoopStopper 時走 `NSApp.terminate_()`，
 直接在 Objective-C 層結束行程，繞過整個 Python 清理機制。

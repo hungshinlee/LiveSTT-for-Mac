@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 
 from .base import EngineError, STTEngine
@@ -73,6 +75,26 @@ def to_language_name(code: str | None) -> str | None:
     return name
 
 
+def _use_thread_lock_for_progress() -> None:
+    """讓 tqdm 改用執行緒鎖，而不是 multiprocessing 號誌。
+
+    mlx-audio 內部用 tqdm 顯示進度，而 tqdm 預設會建立一個 multiprocessing 鎖
+    —— 即使進度條被停用，鎖仍在 ``tqdm.__new__`` 階段就建好。
+
+    我們是單行程，這個鎖本來就沒必要；更麻煩的是浮動字幕視窗模式結束時，
+    ``NSApp.terminate_()`` 會直接在 Objective-C 層砍掉行程，鎖來不及釋放，
+    於是 Python 的 resource_tracker 會印出「leaked semaphore objects」警告，
+    讓使用者以為程式出了問題。換成執行緒鎖就不會建立號誌。
+    """
+    try:
+        import tqdm
+
+        tqdm.tqdm.set_lock(threading.RLock())
+    except Exception:
+        # tqdm 只是顯示進度用的，換不成也不影響辨識
+        pass
+
+
 class QwenASRMLXEngine(STTEngine):
     name = "qwen"
     supports_translate = False
@@ -100,6 +122,7 @@ class QwenASRMLXEngine(STTEngine):
                 "缺少 mlx-audio，請執行：uv pip install mlx-audio"
             ) from exc
 
+        _use_thread_lock_for_progress()
         self._model = load_model(self.model)
 
     def transcribe(self, audio: np.ndarray) -> str:
