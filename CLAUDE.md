@@ -29,6 +29,15 @@ uv run livestt --help            # 全部參數
 uv run livestt --list-locales    # Apple 引擎支援的語言
 ```
 
+課堂／演講場合的完整設定（本專案的主要使用情境）：
+
+```bash
+uv run livestt -e qwen -l zh --translate-to en -u overlay \
+  --terms examples/ai-course.txt \
+  --context "這是一堂深度學習課程" \
+  --log "class-$(date +%F).srt"
+```
+
 手動驗證引擎時，用 `say` 產生音訊，不要把音訊檔放進 repo：
 
 ```bash
@@ -216,6 +225,11 @@ SRT **不能寫註解標頭**，否則播放器解析會失敗，`TranscriptWrit
 `terms.py` 的設計重點：**有譯法的詞左邊也會成為熱詞**。辨識階段就聽錯的話，
 譯法再準也不會被觸發（實測過：英文 Hakka 被聽成 hacker，術語表完全沒作用）。
 
+`--terms` 是固定場合的首選，`--hotwords` 與 `--glossary` 定位為臨時補充，
+兩者會疊加在 `--terms` 之上。文件與範例請以 `--terms` 為主 ——
+三個選項功能重疊，同時主推會讓使用者不知道該用哪個。
+`examples/ai-course.txt` 是可直接改用的範本。
+
 翻譯的脈絡用**真正的對話輪次**（user/assistant 交替）而非把前文塞進 system prompt，
 模型比較自然會延續同樣的用詞。system prompt 必須明確寫「只翻最後一行」，
 否則模型會把前文一起重譯。
@@ -254,6 +268,8 @@ SRT **不能寫註解標頭**，否則播放器解析會失敗，`TranscriptWrit
 - `test_cli.py` 測參數解析、引擎選擇、簡繁轉換判斷、查詢指令
 - `test_translate.py` 測提示組裝、LLM 輸出清理、術語表解析
 - `test_overlay_style.py` 測字幕視窗的樣式計算與顏色解析（不建立視窗）
+- `test_terms.py` 測詞彙表解析與合併
+- `test_postprocess.py` 測簡繁轉換與專有名詞例外
 
 新增邏輯時沿用這個做法：**測我們自己寫的邏輯，不要測第三方模型的行為**。
 需要真實音訊時可以用 macOS 內建的 `say` 產生，不要在 repo 裡塞音訊檔。

@@ -658,12 +658,26 @@ SRT 輸出（時間軸從程式啟動起算）：
 
 把辨識結果往特定詞彙偏置，對人名、專有名詞、術語特別有效。
 
+### 三個選項怎麼選
+
+| 選項 | 用途 |
+|---|---|
+| **`--terms`** | **固定場合的首選。**一個檔案同時作為熱詞與術語表，一門課／一個專案維護一份 |
+| `--hotwords` | 臨時補幾個詞，只影響辨識 |
+| `--glossary` | 臨時指定幾個譯法，只影響翻譯 |
+
+三者可以並用，`--hotwords` 與 `--glossary` 會疊加在 `--terms` 之上。
+長期使用建議都收進 [`--terms` 檔案](#--terms一個檔案兩邊生效)，命令列才不會越來越長。
+
 ```bash
+# 臨時用
 uv run livestt --hotwords "客語,聲學模型,轉譯,林口"
 
-# 詞彙多的話放成檔案，一行一個
-uv run livestt --hotwords hotwords.txt
+# 固定場合（推薦）
+uv run livestt --terms my-course.txt
 ```
+
+### 各引擎的熱詞機制
 
 同一個參數，三個引擎各自對應到最合適的機制：
 
@@ -905,6 +919,7 @@ LiveSTT-for-Mac/
 │   ├── postprocess.py      # OpenCC 簡繁轉換
 │   ├── translate.py        # 外接 LLM 翻譯層
 │   ├── transcript.py       # 逐字稿／SRT 輸出
+│   ├── terms.py            # 課程詞彙表（熱詞 + 術語）
 │   ├── engines/
 │   │   ├── base.py         # STTEngine 抽象介面
 │   │   ├── __init__.py     # 引擎註冊表
@@ -915,6 +930,8 @@ LiveSTT-for-Mac/
 │       ├── base.py         # Sink 介面
 │       ├── terminal.py     # 終端機輸出
 │       └── overlay.py      # 浮動字幕視窗
+├── examples/
+│   └── ai-course.txt       # 範例課程詞彙表
 ├── tools/
 │   └── convert.py          # HF Whisper → MLX 格式轉換
 ├── scripts/
@@ -926,6 +943,7 @@ LiveSTT-for-Mac/
 │   ├── test_translate.py   # 提示組裝、輸出清理、術語表
 │   ├── test_transcript.py  # 逐字稿格式與時間軸
 │   ├── test_postprocess.py # 簡繁轉換
+│   ├── test_terms.py       # 詞彙表解析與合併
 │   └── test_overlay_style.py
 ├── models/                 # 轉換後的本地模型（權重不進版控）
 ├── pyproject.toml
@@ -982,6 +1000,27 @@ ffmpeg -y -i /tmp/test.aiff -ar 16000 -ac 1 -c:a pcm_s16le /tmp/test.wav
 
 - 換更快的引擎（`apple` 最快）或更小的模型
 - 縮短 `--silence-duration`，讓句子切得更短
+
+**課堂上術語一直被聽錯**
+
+把它加進 `--terms` 檔案。英文技術名詞（BERT、softmax）只要寫詞本身，
+中文術語建議連譯法一起寫（`梯度下降 = gradient descent`），這樣辨識與翻譯都會固定。
+可以直接從 [`examples/ai-course.txt`](examples/ai-course.txt) 改起。
+
+**講到一半換主題，翻譯還停在舊脈絡**
+
+`--translate-window` 預設會帶上前兩句。前一句辨識錯誤時可能連帶影響後續，
+需要切斷時設 `--translate-window 0` 改為每句獨立翻譯。
+
+**字幕跟不上，或一句話被切成兩半**
+
+VAD 的斷句門檻可能不符合你的說話習慣：
+
+- 句子常被切斷 → 加大 `--silence-duration`（例如 `0.9`）
+- 字幕出現太慢 → 縮小 `--silence-duration`（例如 `0.4`）
+
+長時間授課時，程式在辨識落後時會自動丟掉最舊的句子並提示，
+但治本要換更快的引擎或更小的模型。
 
 **翻譯結果多了原文沒有的內容**
 

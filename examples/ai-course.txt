@@ -1,0 +1,65 @@
+# AI／深度學習課程詞彙表
+#
+# 用法：
+#   uv run livestt -e qwen -l zh --translate-to en --terms examples/ai-course.txt
+#
+# 沒有 = 的行：只做辨識偏置（讓 ASR 聽得準）
+# 有 = 的行：左邊做辨識偏置，整組做翻譯對照（讓譯法固定）
+#
+# 英文技術名詞通常不需要譯法 —— 直接保持英文原樣即可。
+
+# ── 模型與架構 ──
+Transformer
+BERT
+GPT
+LLaMA
+attention
+self-attention
+encoder
+decoder
+embedding
+tokenizer
+fine-tune
+
+# ── 訓練 ──
+learning rate
+batch size
+mini batch
+epoch
+overfitting
+underfitting
+dropout
+regularization
+cross entropy
+loss function
+optimizer
+Adam
+backpropagation
+
+# ── 工具 ──
+PyTorch
+TensorFlow
+Colab
+Hugging Face
+CUDA
+
+# ── 中文術語：固定譯法 ──
+各位同學 = everyone
+同學們 = everyone
+梯度下降 = gradient descent
+反向傳播 = backpropagation
+注意力機制 = attention mechanism
+損失函數 = loss function
+過擬合 = overfitting
+加權平均 = weighted average
+轉置 = transpose
+向量 = vector
+矩陣 = matrix
+維度 = dimension
+參數量 = parameter count
+訓練資料 = training data
+驗證集 = validation set
+測試集 = test set
+標註 = annotation
+推論 = inference
+微調 = fine-tuning
