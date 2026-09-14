@@ -1,7 +1,9 @@
 """Qwen3-ASR 引擎（透過 mlx-audio 在 Apple Silicon 上執行）。
 
-開源 ASR 中文準確度最強的一檔，支援 30 種語言與 22 種漢語方言
-（含閩南語、粵語、吳語）。純辨識模型，不能翻譯。
+開源 ASR 中文準確度最強的一檔。本專案用得到的是國語、英語，
+以及它支援的閩南語（臺灣台語屬於閩南語）。純辨識模型，不能翻譯。
+
+它不支援客語 —— 客語請改用 Whisper 搭配微調模型。
 """
 from __future__ import annotations
 
@@ -22,14 +24,22 @@ KNOWN_MODELS = [
     ("mlx-community/Qwen3-ASR-0.6B-4bit", "~400 MB"),
 ]
 
+#: Qwen3-ASR 不支援的語言，各自有更好的去處
+UNSUPPORTED = {
+    "hak": (
+        "Qwen3-ASR 不支援客語。\n"
+        "   客語請改用 Whisper 搭配微調模型：\n"
+        "   uv run python tools/convert.py formospeech/whisper-large-v2-taiwanese-hakka-v1\n"
+        "   uv run livestt -m whisper-large-v2-taiwanese-hakka-v1-mlx"
+    ),
+}
+
 #: 模型認的是英文語言名稱，不是 ISO 代碼
 LANGUAGE_NAMES = {
     "zh": "Chinese",
     "cmn": "Chinese",
-    "nan": "Chinese",  # 閩南語屬於 Chinese 底下的方言，由模型自行判別
-    "hak": "Chinese",
-    "wuu": "Chinese",
-    "yue": "Cantonese",
+    # 臺灣台語屬於閩南語，Qwen3-ASR 把它歸在 Chinese 底下的方言，由模型自行判別
+    "nan": "Chinese",
     "en": "English",
     "ja": "Japanese",
     "ko": "Korean",
@@ -66,6 +76,10 @@ def to_language_name(code: str | None) -> str | None:
     if not code:
         return None
     primary = code.split("-")[0].lower()
+
+    if primary in UNSUPPORTED:
+        raise EngineError(UNSUPPORTED[primary])
+
     name = LANGUAGE_NAMES.get(primary)
     if name is None:
         raise EngineError(

@@ -66,11 +66,24 @@ class TestEngineRegistry:
 class TestQwenLanguage:
     @pytest.mark.parametrize(
         "code,expected",
-        [("zh", "Chinese"), ("zh-TW", "Chinese"), ("yue", "Cantonese"),
-         ("en", "English"), ("nan", "Chinese"), ("ja", "Japanese")],
+        [("zh", "Chinese"), ("zh-TW", "Chinese"), ("en", "English"),
+         ("nan", "Chinese"), ("ja", "Japanese")],
     )
     def test_maps_iso_codes(self, code, expected):
         assert to_language_name(code) == expected
+
+    def test_taiwanese_is_handled_as_a_chinese_dialect(self):
+        """臺灣台語屬於閩南語，Qwen3-ASR 把它歸在 Chinese 底下由模型判別。"""
+        assert to_language_name("nan") == "Chinese"
+
+    def test_hakka_points_at_whisper(self):
+        """Qwen3-ASR 的方言清單沒有客語，不該當成國語硬辨識。"""
+        with pytest.raises(EngineError, match="不支援客語"):
+            to_language_name("hak")
+
+    def test_hakka_error_names_the_alternative(self):
+        with pytest.raises(EngineError, match="whisper"):
+            to_language_name("hak")
 
     def test_none_means_auto_detect(self):
         assert to_language_name(None) is None
@@ -104,7 +117,7 @@ class TestTraditionalLanguageGuard:
         assert not wants_traditional("qwen", None, "ja", "transcribe")
 
     def test_chinese_variants_still_converted(self):
-        for code in ("zh", "zh-CN", "yue", "nan"):
+        for code in ("zh", "zh-CN", "nan", "hak"):
             assert wants_traditional("qwen", None, code, "transcribe"), code
 
     def test_auto_detect_still_converted(self):

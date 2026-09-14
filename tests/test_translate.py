@@ -19,9 +19,9 @@ class TestGlossary:
         }
 
     def test_accepts_fullwidth_comma(self):
-        assert parse_glossary("客語=Hakka，粵語=Cantonese") == {
+        assert parse_glossary("客語=Hakka，台語=Taiwanese") == {
             "客語": "Hakka",
-            "粵語": "Cantonese",
+            "台語": "Taiwanese",
         }
 
     def test_ignores_entries_without_separator(self):
@@ -58,7 +58,7 @@ class TestLanguageResolution:
 
     @pytest.mark.parametrize(
         "value,expected",
-        [("zh-TW", True), ("zh-HK", True), ("Traditional Chinese", True),
+        [("zh-TW", True), ("Traditional Chinese", True),
          ("zh-CN", False), ("ja", False), ("en", False)],
     )
     def test_traditional_target_detection(self, value, expected):

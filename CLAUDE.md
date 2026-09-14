@@ -13,6 +13,9 @@ Apple Silicon Mac 上的離線即時語音轉文字：
 選項是正交的：三種辨識引擎（Whisper / macOS 內建 / Qwen3-ASR）× 兩種輸出
 （終端機 / 浮動字幕視窗）× 可選翻譯 × 可選雙語。
 
+**專案聚焦於四種語言：英語、國語、臺灣台語、臺灣客語。**
+新增功能時以這四種為準，不要為了「反正模型支援」而把其他語言加回文件或範例。
+
 **這是 macOS 專用專案**，依賴 Apple Silicon（MLX）與多個 PyObjC 框架。
 不必為其他平台保留相容路徑，也不要為了「以防萬一」加入 CUDA 或 Linux 分支。
 
@@ -139,6 +142,20 @@ PyObjC 的 `stopEventLoop()` 在找不到 RunLoopStopper 時走 `NSApp.terminate
 - **Apple 沒有模型可選**，`--model` 對它無意義，註冊表的 `_apple()` 會把它丟掉。
 - **Qwen 認英文語言名稱**（`"Chinese"`）不是 ISO 代碼，見 `qwen_mlx.LANGUAGE_NAMES`。
   Apple 要完整 locale（`zh-TW`），Whisper 要主語言碼（`zh`）。各自在引擎內轉換。
+
+### 四種語言分別走哪條路
+
+| 語言 | 引擎 | 備註 |
+|---|---|---|
+| 英語 | 三個都可以 | apple 延遲最低 |
+| 國語 | 三個都可以 | qwen 最準 |
+| 臺灣台語 | 只有 `qwen`（`-l nan`）| 走 Qwen 的閩南語支援，歸在 Chinese 底下 |
+| 臺灣客語 | 只有 `whisper` + 微調模型 | 三個引擎都無原生支援 |
+
+**Qwen3-ASR 的方言清單裡沒有客語。** 它支援的是閩南語、吳語等，
+所以 `qwen_mlx.UNSUPPORTED` 會攔下 `-l hak` 並指向 Whisper ——
+不要把 `hak` 加回 `LANGUAGE_NAMES` 映射成 `Chinese`，那會讓客語被當成國語
+硬辨識，失敗得莫名其妙。
 
 ## 翻譯
 

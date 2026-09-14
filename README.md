@@ -2,7 +2,9 @@
 
 專為 Apple Silicon Mac 打造的**離線即時語音轉文字**工具。音訊完全不離開你的電腦，延遲低、可長時間運作，並提供可浮在全螢幕簡報之上的即時字幕視窗。
 
-提供三種辨識引擎，依場合選用：追求翻譯能力與微調模型用 Whisper，追求零延遲用 macOS 內建引擎，追求中文與方言準確度用 Qwen3-ASR。
+專注於四種語言：**英語、國語、臺灣台語、臺灣客語**。提供三種辨識引擎依場合選用 ——
+追求零延遲用 macOS 內建引擎，追求國語與臺灣台語準確度用 Qwen3-ASR，
+臺灣客語與翻譯成英文則用 Whisper。
 
 ![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
@@ -13,6 +15,7 @@
 
 ## 目錄
 
+- [支援的語言](#支援的語言)
 - [三種引擎怎麼選](#三種引擎怎麼選)
 - [離線與隱私](#離線與隱私)
 - [系統需求](#系統需求)
@@ -36,15 +39,38 @@
 
 ---
 
+## 支援的語言
+
+| 語言 | 可用引擎 | 指令 |
+|---|---|---|
+| **英語** | 三個都可以 | `-e apple -l en-US`（最低延遲）|
+| **國語** | 三個都可以 | `-e qwen -l zh`（最準）／`-e apple -l zh-TW`（最快）|
+| **臺灣台語** | 只有 `qwen` | `-e qwen -l nan` |
+| **臺灣客語** | 只有 `whisper` + 微調模型 | 見[轉換自訂模型](#轉換自訂模型) |
+
+幾點說明：
+
+- **臺灣台語** 走 Qwen3-ASR 的閩南語支援（臺灣台語是閩南語的一支）。
+  它把閩南語歸在 Chinese 底下由模型自行判別，所以 `-l nan` 與 `-l zh` 都能用，
+  差別在前者會明確提示模型。
+- **臺灣客語** 三個引擎都沒有原生支援，唯一的路是用 Whisper 搭配社群微調模型
+  （例如 `formospeech/whisper-large-v2-taiwanese-hakka-v1`）。
+  對 `qwen` 指定 `-l hak` 會直接報錯並告訴你該怎麼做，不會默默當成國語辨識。
+- **客語的字**有些位於 CJK 擴展區，一般字體顯示為方塊，需要[安裝字體](#擴展漢字字體)。
+
+需要翻譯時，這四種語言都可以透過 [`--translate-to`](#翻譯) 翻成任何語言。
+
+---
+
 ## 三種引擎怎麼選
 
 | | `whisper` | `apple` | `qwen` |
 |---|---|---|---|
 | **內建翻譯**（`--task translate`）| ✅ 唯一支援，但只能翻成英文 | ❌ | ❌ |
 | **外接 LLM 翻譯**（`--translate-to`）| ✅ | ✅ | ✅ |
-| **中文準確度** | 良好 | 良好 | ✅ **最佳** |
-| **台語／粵語** | ❌ | 粵語（`yue-CN`） | ✅ **閩南語、粵語、吳語等 22 種方言** |
-| **客語** | ✅ 可用微調模型 | ❌ | ❌ |
+| **國語準確度** | 良好 | 良好 | ✅ **最佳** |
+| **臺灣台語** | ❌ | ❌ | ✅ **唯一支援** |
+| **臺灣客語** | ✅ **唯一支援**（需微調模型）| ❌ | ❌ |
 | **延遲** | 較高 | ✅ **最低** | 中等 |
 | **需要下載** | 75 MB – 3 GB | ✅ **完全不用** | 0.4 – 3.4 GB |
 | **熱詞** | ⚠️ 僅提示條件化 | ✅ `contextualStrings` | ✅ 原生支援 |
@@ -54,8 +80,8 @@
 **一句話建議：**
 
 - **做簡報、要最即時** → `apple`
-- **中文、台語、粵語要最準** → `qwen`
-- **要翻譯成英文，或要用客語模型** → `whisper`
+- **國語或臺灣台語要最準** → `qwen`
+- **臺灣客語，或要翻譯成英文** → `whisper`
 
 > **關於翻譯：** Whisper 內建的 `--task translate` 只能翻成英文（模型訓練方式決定的）。
 > 想翻成其他語言、或想讓 `apple` / `qwen` 也能翻譯，用 [`--translate-to`](#翻譯) 外接 LLM ——
@@ -221,13 +247,12 @@ uv run livestt -e apple -l zh-TW -u overlay --screen 1 --font-size 48
 uv run livestt -e qwen -l zh 2>&1 | tee meeting-$(date +%F).txt
 ```
 
-### 台語或粵語
+### 臺灣台語
 
-只有 Qwen3-ASR 支援漢語方言：
+只有 Qwen3-ASR 支援：
 
 ```bash
-uv run livestt -e qwen -l zh          # 閩南語由模型自動辨識
-uv run livestt -e qwen -l yue         # 粵語
+uv run livestt -e qwen -l nan
 ```
 
 ### 客語
@@ -283,7 +308,11 @@ uv run livestt --model whisper-large-v2-taiwanese-hakka-v1-mlx   # 本地微調�
 
 ### `apple` — macOS 內建語音辨識
 
-使用 macOS 內建的 `SFSpeechRecognizer`，**完全不需要下載模型**，延遲最低，支援 63 種語言（含 `zh-TW`、`zh-HK`、`yue-CN`）。強制使用裝置端辨識，音訊不會上傳。
+使用 macOS 內建的 `SFSpeechRecognizer`，**完全不需要下載模型**，延遲最低。
+本專案關注的語言中，它支援**國語**（`zh-TW`）與**英語**（`en-US`），
+臺灣台語與客語則不支援。強制使用裝置端辨識，音訊不會上傳。
+
+它另外支援數十種其他語言，完整清單見 `--list-locales`。
 
 ```bash
 uv run livestt --engine apple --language zh-TW
@@ -302,12 +331,16 @@ uv run livestt --list-locales      # 查看全部支援語言
 
 ### `qwen` — Qwen3-ASR
 
-阿里巴巴的開源 ASR 模型（Apache-2.0），透過 `mlx-audio` 在 Apple Silicon 上執行。**中文準確度最佳**，支援 30 種語言與 22 種漢語方言，包含**閩南語（台語）、粵語、吳語**。原生支援熱詞。
+阿里巴巴的開源 ASR 模型（Apache-2.0），透過 `mlx-audio` 在 Apple Silicon 上執行。
+**國語準確度最佳**，而且是三個引擎中**唯一支援臺灣台語**的（走它的閩南語支援）。
+原生支援熱詞。
+
+它不支援客語 —— 指定 `-l hak` 會直接報錯並指向 Whisper，不會默默當成國語辨識。
 
 ```bash
 uv run livestt --engine qwen                                    # 預設 1.7B-8bit
 uv run livestt --engine qwen --model mlx-community/Qwen3-ASR-0.6B-4bit   # 更輕更快
-uv run livestt --engine qwen --language yue                     # 粵語
+uv run livestt --engine qwen --language nan                     # 臺灣台語
 ```
 
 | 模型 | 大小 |
@@ -570,7 +603,7 @@ uv run livestt --opencc s2twp
 | Whisper + 本地微調模型 | ❌ | 保留原始輸出（例如客語）|
 | `--task translate` | ❌ | 輸出是英文 |
 | Qwen3-ASR | ✅ | 中文輸出為簡體 |
-| Apple + `zh-TW`／`zh-HK` | ❌ | 本來就是繁體 |
+| Apple + `zh-TW` | ❌ | 本來就是繁體 |
 | Apple + `zh-CN` | ✅ | 輸出為簡體 |
 | 有 `--translate-to` | 看目標語言 | 依畫面實際顯示的語言判斷，而非辨識語言 |
 
@@ -588,7 +621,7 @@ uv run livestt --opencc s2twp
 | `--ui` | `-u` | `terminal`／`overlay` | `terminal` |
 | `--model` | `-m` | 模型名稱（Apple 引擎不適用）| 依引擎 |
 | `--task` | `-t` | `transcribe`／`translate` | `transcribe` |
-| `--language` | `-l` | `zh`、`zh-TW`、`en`、`ja`、`yue`… | 自動偵測 |
+| `--language` | `-l` | `zh`／`zh-TW` 國語、`en` 英語、`nan` 臺灣台語、`hak` 臺灣客語 | 自動偵測 |
 | `--hotwords` | | 逗號分隔的詞，或檔案路徑 | 無 |
 | `--translate-to` | | 翻譯成指定語言（`en`、`ja`、`zh-TW`…）| 不翻譯 |
 | `--translate-model` | | 翻譯用的 LLM | Qwen3-4B-Instruct |

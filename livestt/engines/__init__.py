@@ -48,21 +48,21 @@ def _qwen(**kwargs) -> STTEngine:
 ENGINES: dict[str, EngineSpec] = {
     "whisper": EngineSpec(
         name="whisper",
-        summary="MLX Whisper，內建翻成英文的能力，可用本地微調模型",
+        summary="MLX Whisper，內建翻成英文的能力，臺灣客語的唯一選擇",
         supports_translate=True,
         extra="whisper",
         factory=_whisper,
     ),
     "apple": EngineSpec(
         name="apple",
-        summary="macOS 內建語音辨識，零下載、延遲最低",
+        summary="macOS 內建語音辨識，零下載、延遲最低（國語、英語）",
         supports_translate=False,
         extra="apple",
         factory=_apple,
     ),
     "qwen": EngineSpec(
         name="qwen",
-        summary="Qwen3-ASR，中文與方言（台語、粵語）準確度最佳，支援熱詞",
+        summary="Qwen3-ASR，國語與臺灣台語準確度最佳，原生熱詞支援",
         supports_translate=False,
         extra="qwen",
         factory=_qwen,

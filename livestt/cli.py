@@ -18,10 +18,11 @@ EPILOG = """\
 範例：
   livestt                                  預設：Whisper + 終端機輸出
   livestt --engine apple                   用 macOS 內建辨識（零下載、最快）
-  livestt --engine qwen                    用 Qwen3-ASR（中文／台語最準）
+  livestt --engine qwen                    用 Qwen3-ASR（國語／臺灣台語最準）
   livestt --task translate                 翻譯成英文（僅 Whisper 支援）
   livestt --ui overlay                     浮動字幕視窗，適合全螢幕簡報
   livestt --ui overlay --screen 1          字幕顯示在第二個螢幕
+  livestt -e qwen -l nan                   臺灣台語
   livestt --hotwords 客語,聲學模型,轉譯      提高特定詞彙的辨識率
   livestt -e apple --translate-to ja        中文語音 → 日文字幕
   livestt -e apple --translate-to zh-TW -l en   英文語音 → 繁中字幕
@@ -32,10 +33,16 @@ EPILOG = """\
   --task translate    Whisper 內建，單次推論較省資源，但只能翻成英文
   --translate-to X    外接 LLM，三個引擎都能用，可翻成任何語言
 
+支援的語言：
+  英語        三個引擎都可以，apple 延遲最低
+  國語        三個引擎都可以，qwen 最準
+  臺灣台語     只有 qwen（-l nan）
+  臺灣客語     只有 whisper 搭配微調模型（見 README 的「轉換自訂模型」）
+
 引擎比較：
-  whisper   可翻譯成英文、可用微調模型（客語）。品質高，延遲較高
-  apple     零下載、延遲最低、支援 zh-TW。需在系統設定開啟「聽寫」
-  qwen      中文與方言（台語、粵語）最準，原生熱詞支援
+  whisper   可翻譯成英文；臺灣客語的唯一選擇。品質高，延遲較高
+  apple     零下載、延遲最低。需在系統設定開啟「聽寫」
+  qwen      國語與臺灣台語最準，原生熱詞支援
 
 查詢：
   livestt --list            列出可用模型
@@ -77,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     core.add_argument(
         "--language", "-l",
-        help="語言代碼，如 zh、zh-TW、en、ja、yue。不給則自動偵測",
+        help="語言代碼：zh／zh-TW 國語、en 英語、nan 臺灣台語、hak 臺灣客語。不給則自動偵測",
     )
     core.add_argument(
         "--hotwords",
@@ -233,7 +240,7 @@ def parse_hotwords(value: str | None) -> list[str]:
 
 
 #: 會產生中文輸出的語言代碼
-CHINESE_CODES = {"zh", "cmn", "yue", "nan", "hak", "wuu"}
+CHINESE_CODES = {"zh", "cmn", "nan", "hak"}
 
 
 def wants_traditional(
@@ -269,7 +276,7 @@ def wants_traditional(
         return True  # Qwen3-ASR 中文輸出為簡體
 
     if engine == "apple":
-        # zh-TW / zh-HK 本來就是繁體，只有簡體中文需要轉
+        # zh-TW 本來就是繁體，只有簡體中文需要轉
         return (language or "").lower().replace("_", "-").startswith("zh-cn")
 
     return False
@@ -418,6 +425,9 @@ def main(argv: list[str] | None = None) -> int:
             transcript=transcript,
         )
 
+    except BrokenPipeError:
+        # 輸出被導向 head 之類的指令並提早關閉，不是錯誤
+        return 0
     except (EngineError, ValueError) as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1
