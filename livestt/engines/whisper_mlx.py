@@ -85,6 +85,7 @@ class WhisperMLXEngine(STTEngine):
         language: str | None = None,
         task: str = "transcribe",
         hotwords: list[str] | None = None,
+        context: str | None = None,
     ) -> None:
         self.model = resolve_model(model)
         self.task = task
@@ -92,7 +93,9 @@ class WhisperMLXEngine(STTEngine):
         self.language = language.split("-")[0] if language else None
         # Whisper 沒有熱詞 API，只能用 initial_prompt 做提示條件化。
         # 效果不如真正的熱詞偏置，提示太長還可能誘發幻覺，所以只串成一句短的。
-        self.initial_prompt = "、".join(hotwords) if hotwords else None
+        self.context = (context or "").strip() or None
+        parts = [p for p in (self.context, "、".join(hotwords) if hotwords else None) if p]
+        self.initial_prompt = " ".join(parts) or None
         self.hotwords = hotwords or []
         self._transcribe = None
 

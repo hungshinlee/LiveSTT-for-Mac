@@ -118,14 +118,23 @@ class QwenASRMLXEngine(STTEngine):
         model: str | None = None,
         language: str | None = None,
         hotwords: list[str] | None = None,
+        context: str | None = None,
     ) -> None:
         self.model = model or DEFAULT_MODEL
         self.language = to_language_name(language)
         self.hotwords = hotwords or None
+        # Qwen3-ASR 的 system_prompt 是自由文字，可以放領域描述讓模型
+        # 對題材有概念，而不只是認得幾個詞。熱詞會由 mlx-audio 併進同一個欄位
+        self.context = (context or "").strip() or None
         self._model = None
 
     def describe(self) -> str:
-        extra = f"，熱詞 {len(self.hotwords)} 個" if self.hotwords else ""
+        parts = []
+        if self.hotwords:
+            parts.append(f"熱詞 {len(self.hotwords)} 個")
+        if self.context:
+            parts.append("有領域描述")
+        extra = f"（{'、'.join(parts)}）" if parts else ""
         return f"{self.model} (HuggingFace){extra}"
 
     def prepare(self) -> None:
@@ -147,6 +156,7 @@ class QwenASRMLXEngine(STTEngine):
             audio,
             language=self.language,
             hotwords=self.hotwords,
+            system_prompt=self.context,
             verbose=False,
         )
         return (result.text or "").strip()

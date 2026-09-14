@@ -138,7 +138,11 @@ class AppleSpeechEngine(STTEngine):
         language: str | None = None,
         hotwords: list[str] | None = None,
         punctuation: bool = True,
+        context: str | None = None,
     ) -> None:
+        # SFSpeechRecognizer 只吃 contextualStrings（詞彙清單），
+        # 沒有可放自由文字的欄位，所以 context 對它無效
+        del context
         self.language = language
         self.hotwords = hotwords or []
         self.punctuation = punctuation

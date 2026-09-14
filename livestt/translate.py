@@ -9,10 +9,16 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
+from collections import deque
 
 #: 預設選 8bit 而非 4bit。實測 4bit 會漏掉細節 —— 「營收年增 8.7%」的
 #: 「年增」、「地點改在第三會議室」的「改」都不見了。多 0.13 秒/句換不漏資訊。
 DEFAULT_MODEL = "mlx-community/Qwen3-4B-Instruct-2507-8bit"
+
+#: 翻譯時帶上前幾句作為脈絡。
+#: 0 表示每句獨立翻譯，會出現「第三季」被翻成 season three 這類歧義；
+#: 開太大則會拖慢，且前一句辨識錯誤時容易連帶影響後續。
+DEFAULT_WINDOW = 2
 
 #: --list 時顯示的常用翻譯模型：(repo, 大小, 說明)
 KNOWN_MODELS = [
@@ -140,18 +146,35 @@ class QwenLMTranslator(Translator):
         target: str,
         model: str | None = None,
         glossary: dict[str, str] | None = None,
+        context: str | None = None,
+        window: int = DEFAULT_WINDOW,
     ) -> None:
         self.target_raw = target
         self.target = resolve_language(target)
         self.model = model or DEFAULT_MODEL
         self.glossary = glossary or {}
+        self.context = (context or "").strip() or None
+        self.window = max(0, window)
+        # 前幾句的原文與譯文，讓代名詞與術語前後一致
+        self._history: deque[tuple[str, str]] = deque(maxlen=self.window or 1)
         self._model = None
         self._tokenizer = None
         self._sampler = None
 
     def describe(self) -> str:
-        extra = f"，術語 {len(self.glossary)} 組" if self.glossary else ""
+        parts = []
+        if self.glossary:
+            parts.append(f"術語 {len(self.glossary)} 組")
+        if self.context:
+            parts.append("有領域描述")
+        if self.window:
+            parts.append(f"脈絡 {self.window} 句")
+        extra = f"（{'、'.join(parts)}）" if parts else ""
         return f"{self.model} → {self.target}{extra}"
+
+    def reset(self) -> None:
+        """清空脈絡。換主題或重新開始時使用。"""
+        self._history.clear()
 
     def _system_prompt(self) -> str:
         prompt = (
@@ -160,9 +183,16 @@ class QwenLMTranslator(Translator):
             "The input comes from live speech recognition and may be incomplete "
             "or contain errors; translate what is there and do not invent content."
         )
+        if self.context:
+            prompt += f"\nContext for this session: {self.context}"
         if self.glossary:
             terms = "; ".join(f"{k} = {v}" for k, v in self.glossary.items())
             prompt += f"\nAlways use these fixed term translations: {terms}"
+        if self.window:
+            prompt += (
+                "\nEarlier lines of the same talk are provided for context. "
+                "Translate ONLY the final line."
+            )
         return prompt
 
     def prepare(self) -> None:
@@ -181,10 +211,12 @@ class QwenLMTranslator(Translator):
         self.translate("測試")  # 預熱，順便驗證 chat template 可用
 
     def _build_prompt(self, text: str) -> str:
-        messages = [
-            {"role": "system", "content": self._system_prompt()},
-            {"role": "user", "content": text},
-        ]
+        messages = [{"role": "system", "content": self._system_prompt()}]
+        # 把前幾句當成已完成的對話輪次，模型自然會延續同樣的用詞
+        for source, translated in self._history:
+            messages.append({"role": "user", "content": source})
+            messages.append({"role": "assistant", "content": translated})
+        messages.append({"role": "user", "content": text})
         try:
             # 非 thinking 模式：思考過程會讓延遲從零點幾秒暴增到數秒
             return self._tokenizer.apply_chat_template(
@@ -220,4 +252,7 @@ class QwenLMTranslator(Translator):
             sampler=self._sampler,
             verbose=False,
         )
-        return _clean(output)
+        result = _clean(output)
+        if self.window and result:
+            self._history.append((text, result))
+        return result

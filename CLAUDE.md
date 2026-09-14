@@ -203,6 +203,23 @@ SRT **不能寫註解標頭**，否則播放器解析會失敗，`TranscriptWrit
 每句寫完就 flush —— 簡報中途當掉時已講的部分要保得住。寫檔失敗不可中斷辨識，
 `_record()` 會回報一次錯誤後把 `transcript` 設為 None。
 
+## 詞彙與脈絡
+
+三個相關但作用位置不同的選項，改動時不要混為一談：
+
+| 選項 | ASR 端 | 翻譯端 |
+|---|---|---|
+| `--terms` / `--hotwords` | Qwen 的 `hotwords`（被 mlx-audio 併進 system_prompt）、Whisper 的 `initial_prompt`、Apple 的 `contextualStrings` | 術語對照表 |
+| `--context` | Qwen 的 `system_prompt`、Whisper 的 `initial_prompt`；**Apple 無對應欄位，直接忽略** | system prompt 的 Context 段 |
+| `--translate-window` | 無 | 前 N 句作為對話歷史 |
+
+`terms.py` 的設計重點：**有譯法的詞左邊也會成為熱詞**。辨識階段就聽錯的話，
+譯法再準也不會被觸發（實測過：英文 Hakka 被聽成 hacker，術語表完全沒作用）。
+
+翻譯的脈絡用**真正的對話輪次**（user/assistant 交替）而非把前文塞進 system prompt，
+模型比較自然會延續同樣的用詞。system prompt 必須明確寫「只翻最後一行」，
+否則模型會把前文一起重譯。
+
 ## 簡繁轉換
 
 **預設配置是 `s2tw`，不是 `s2twp`，這是刻意的。**

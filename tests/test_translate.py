@@ -136,3 +136,54 @@ class TestDefaults:
         from livestt.translate import DEFAULT_MODEL, QwenLMTranslator
 
         assert QwenLMTranslator(target="en").model == DEFAULT_MODEL
+
+
+class TestContextAndMemory:
+    def test_context_appears_in_system_prompt(self):
+        translator = QwenLMTranslator(target="en", context="這是一堂深度學習課程")
+
+        assert "這是一堂深度學習課程" in translator._system_prompt()
+
+    def test_blank_context_is_treated_as_absent(self):
+        assert QwenLMTranslator(target="en", context="   ").context is None
+
+    def test_window_zero_keeps_no_history(self):
+        translator = QwenLMTranslator(target="en", window=0)
+        translator._history.append(("原文", "translated"))
+
+        assert translator.window == 0
+
+    def test_negative_window_is_clamped(self):
+        assert QwenLMTranslator(target="en", window=-5).window == 0
+
+    def test_history_is_bounded_by_window(self):
+        translator = QwenLMTranslator(target="en", window=2)
+        for i in range(5):
+            translator._history.append((f"原文{i}", f"text{i}"))
+
+        assert len(translator._history) == 2
+
+    def test_reset_clears_history(self):
+        translator = QwenLMTranslator(target="en", window=2)
+        translator._history.append(("原文", "translated"))
+        translator.reset()
+
+        assert not translator._history
+
+    def test_window_prompt_tells_model_to_translate_only_the_last_line(self):
+        """少了這句，模型可能把前文也一起重譯。"""
+        prompt = QwenLMTranslator(target="en", window=2)._system_prompt()
+
+        assert "ONLY the final line" in prompt
+
+    def test_no_window_instruction_when_disabled(self):
+        prompt = QwenLMTranslator(target="en", window=0)._system_prompt()
+
+        assert "final line" not in prompt
+
+    def test_describe_reports_active_features(self):
+        described = QwenLMTranslator(
+            target="en", glossary={"a": "b"}, context="課程", window=2
+        ).describe()
+
+        assert "術語" in described and "領域描述" in described and "脈絡" in described

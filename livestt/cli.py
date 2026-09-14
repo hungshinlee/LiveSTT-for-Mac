@@ -9,8 +9,10 @@ import time
 from pathlib import Path
 
 from . import postprocess, translate
+from .translate import parse_glossary
 from .engines import DEFAULT_ENGINE, ENGINES, EngineError, create_engine
 from .pipeline import Pipeline
+from .terms import parse_terms
 from .transcript import TranscriptWriter
 from .vad import VADConfig
 
@@ -87,6 +89,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="語言代碼：zh／zh-TW 國語、en 英語、nan 臺灣台語、hak 臺灣客語。不給則自動偵測",
     )
     core.add_argument(
+        "--terms",
+        metavar="檔案",
+        help="課程／領域詞彙表，一個檔案同時作為辨識熱詞與翻譯術語表。"
+             "沒有 = 的行只做辨識偏置，有 = 的行兩邊都生效",
+    )
+    core.add_argument(
+        "--context",
+        metavar="描述",
+        help="一句話描述這場的主題，同時提供給辨識與翻譯，減少歧義。"
+             "例如「這是一堂深度學習課程，會談到 Transformer 與注意力機制」",
+    )
+    core.add_argument(
         "--hotwords",
         help="逗號分隔的熱詞，提高特定詞彙辨識率；也可給一個每行一詞的檔案路徑",
     )
@@ -99,6 +113,14 @@ def build_parser() -> argparse.ArgumentParser:
     core.add_argument(
         "--translate-model",
         help=f"翻譯用的 LLM（預設 {translate.DEFAULT_MODEL}）",
+    )
+    core.add_argument(
+        "--translate-window",
+        type=int,
+        default=translate.DEFAULT_WINDOW,
+        metavar="N",
+        help=f"翻譯時帶上前 N 句作為脈絡，0 為每句獨立翻譯"
+             f"（預設 {translate.DEFAULT_WINDOW}）",
     )
     core.add_argument(
         "--bilingual",
@@ -282,7 +304,7 @@ def wants_traditional(
     return False
 
 
-def print_banner(args, engine, convert_tw: bool, translator=None) -> None:
+def print_banner(args, engine, convert_tw: bool, translator=None, terms=None) -> None:
     print("=" * 56)
     print("LiveSTT — 離線即時語音轉文字（Apple Silicon GPU）")
     print("=" * 56)
@@ -300,6 +322,10 @@ def print_banner(args, engine, convert_tw: bool, translator=None) -> None:
         f"VAD：門檻 {args.speech_threshold}｜靜音 {args.silence_duration}s｜"
         f"最短 {args.min_speech_duration}s｜緩衝 {args.speech_pad_duration}s"
     )
+    if terms:
+        print(f"詞彙：熱詞 {len(terms.hotwords)} 個｜術語 {len(terms.glossary)} 組")
+    if args.context:
+        print(f"主題：{args.context}")
     if args.log:
         kind = "SRT 字幕" if str(args.log).lower().endswith(".srt") else "純文字"
         print(f"逐字稿：{args.log}（{kind}）")
@@ -349,13 +375,23 @@ def main(argv: list[str] | None = None) -> int:
                 "   --translate-to 是外接 LLM 翻譯（可翻成任何語言），兩者擇一。"
             )
 
-        hotwords = parse_hotwords(args.hotwords)
+        # --terms 提供共用詞彙，--hotwords／--glossary 可再補充
+        terms = parse_terms(args.terms).merge(
+            parse_terms(
+                "\n".join(
+                    [*parse_hotwords(args.hotwords),
+                     *(f"{k} = {v}" for k, v in parse_glossary(args.glossary).items())]
+                )
+            )
+        )
+
         engine = create_engine(
             args.engine,
             model=args.model,
             language=args.language,
             task=args.task,
-            hotwords=hotwords,
+            hotwords=terms.hotwords,
+            context=args.context,
         )
 
         transcript = None
@@ -370,7 +406,9 @@ def main(argv: list[str] | None = None) -> int:
             translator = translate.QwenLMTranslator(
                 target=args.translate_to,
                 model=args.translate_model,
-                glossary=translate.parse_glossary(args.glossary),
+                glossary=terms.glossary,
+                context=args.context,
+                window=args.translate_window,
             )
 
         if args.traditional == "auto":
@@ -405,7 +443,7 @@ def main(argv: list[str] | None = None) -> int:
 
             sink = TerminalSink()
 
-        print_banner(args, engine, convert_tw, translator)
+        print_banner(args, engine, convert_tw, translator, terms)
 
         pipeline = Pipeline(
             engine=engine,
