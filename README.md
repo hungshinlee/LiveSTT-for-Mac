@@ -948,7 +948,8 @@ LiveSTT-for-Mac/
 ├── tools/
 │   └── convert.py          # HF Whisper → MLX 格式轉換
 ├── scripts/
-│   └── install_fonts.sh    # 安裝擴展漢字字體
+│   ├── install_fonts.sh    # 安裝擴展漢字字體
+│   └── check_docs.py       # 檢查文件與程式是否同步
 ├── tests/
 │   ├── test_vad.py         # 斷句狀態機
 │   ├── test_pipeline.py    # 執行緒、佇列、錯誤處理
@@ -957,6 +958,7 @@ LiveSTT-for-Mac/
 │   ├── test_transcript.py  # 逐字稿格式與時間軸
 │   ├── test_postprocess.py # 簡繁轉換
 │   ├── test_terms.py       # 詞彙表解析與合併
+│   ├── test_docs.py        # 文件與程式是否同步
 │   └── test_overlay_style.py
 ├── models/                 # 轉換後的本地模型（權重不進版控）
 ├── pyproject.toml
@@ -985,6 +987,29 @@ VAD 用可控的假偵測器、pipeline 用假麥克風與假引擎、翻譯測�
 say -v Meijia -o /tmp/test.aiff "今天天氣很好"
 ffmpeg -y -i /tmp/test.aiff -ar 16000 -ac 1 -c:a pcm_s16le /tmp/test.wav
 ```
+
+### 文件同步檢查
+
+文件很容易跟著程式漂走 —— 新增選項忘了寫、預設值改了沒更新、章節改名讓連結失效。
+這些比對已經自動化：
+
+```bash
+uv run python scripts/check_docs.py
+```
+
+```
+檢查文件（CLI 共 32 個選項）
+
+  ✅ 所有選項都有文件
+  ✅ 所有選項列入參數表
+  ✅ 預設值與程式一致
+  ✅ 模組與測試檔已列出
+  ✅ 引擎與模型已記載
+  ✅ 連結有效
+  ✅ 範例指令可解析
+```
+
+同樣的檢查也掛在 `pytest` 裡（`tests/test_docs.py`），所以跑測試就會一併驗證。
 
 開發時的注意事項與 macOS 平台陷阱記錄在 [CLAUDE.md](CLAUDE.md)。
 
