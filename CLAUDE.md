@@ -168,6 +168,11 @@ PyObjC 的 `stopEventLoop()` 在找不到 RunLoopStopper 時走 `NSApp.terminate
 - `--task translate` — Whisper 內建的多任務能力，單次推論，**只能翻成英文**
 - `--translate-to X` — 外接 Qwen3 LLM，兩段式，三個引擎都能用，可翻成任何語言
 
+**文件一律推薦 `--translate-to`。** 實測六句國語，Whisper large-v3 的內建翻譯
+把「三百五十萬」翻成 350,000（差十倍）、「聲學模型」翻成 life-and-death model、
+「第三季」翻成 third season；whisper-medium 甚至輸出日文。
+`--task translate` 保留是為了不破壞既有用法與省一個模型，但不要在範例中主推它。
+
 兩者同時指定會報錯（在 `main()` 檢查，訊息說明兩者差異）。
 
 翻譯器用的是**非 thinking 模式**（`enable_thinking=False`）。Qwen3 的 hybrid thinking

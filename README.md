@@ -66,7 +66,7 @@
 
 | | `whisper` | `apple` | `qwen` |
 |---|---|---|---|
-| **內建翻譯**（`--task translate`）| ✅ 唯一支援，但只能翻成英文 | ❌ | ❌ |
+| **內建翻譯**（`--task translate`）| ✅ 唯一支援，但只能翻成英文且[品質不可靠](#為什麼建議別用---task-translate) | ❌ | ❌ |
 | **外接 LLM 翻譯**（`--translate-to`）| ✅ | ✅ | ✅ |
 | **國語準確度** | 良好 | 良好 | ✅ **最佳** |
 | **臺灣台語** | ❌ | ❌ | ✅ **唯一支援** |
@@ -83,9 +83,9 @@
 - **國語或臺灣台語要最準** → `qwen`
 - **臺灣客語，或要翻譯成英文** → `whisper`
 
-> **關於翻譯：** Whisper 內建的 `--task translate` 只能翻成英文（模型訓練方式決定的）。
-> 想翻成其他語言、或想讓 `apple` / `qwen` 也能翻譯，用 [`--translate-to`](#翻譯) 外接 LLM ——
-> 三個引擎都適用，而且能翻成任何語言，包含 Whisper 做不到的「翻成中文」。
+> **關於翻譯：** 請用 [`--translate-to`](#翻譯) —— 三個引擎都適用、可翻成任何語言，
+> 品質也明顯優於 Whisper 內建的 `--task translate`（[實測對照](#為什麼建議別用---task-translate)）。
+> 後者只能翻成英文，而且會出現數字差十倍這類[嚴重錯誤](#為什麼建議別用---task-translate)。
 
 ---
 
@@ -182,8 +182,8 @@ uv run livestt --engine apple --language zh-TW
 # Qwen3-ASR，中文最準
 uv run livestt --engine qwen
 
-# 翻譯成英文
-uv run livestt --task translate
+# 翻譯成英文（建議用 --translate-to，品質較佳）
+uv run livestt --engine qwen --translate-to en
 
 # 浮動字幕視窗（適合全螢幕簡報）
 uv run livestt --ui overlay
@@ -298,7 +298,7 @@ OpenAI Whisper 跑在 MLX 上，使用 Apple Silicon GPU。**唯一能翻譯**�
 
 ```bash
 uv run livestt --engine whisper --model mlx-community/whisper-medium-mlx
-uv run livestt --task translate                    # 任何語言 → 英文
+uv run livestt --task translate                    # 內建翻譯，品質不如 --translate-to
 uv run livestt --model whisper-large-v2-taiwanese-hakka-v1-mlx   # 本地微調模型
 ```
 
@@ -399,6 +399,11 @@ uv run livestt --ui overlay --engine apple --language zh-TW   # 低延遲組合
 | 可用引擎 | 只有 `whisper` | **三個都可以** |
 | 額外模型 | 不需要 | ~2.3 GB |
 | 術語控制 | 無 | ✅ `--glossary` |
+| **品質** | ⚠️ **不可靠，見下** | ✅ 明顯較佳 |
+| 速度 | 0.25 秒/句 | 0.33 秒/句 |
+
+> **建議用 `--translate-to`。** `--task translate` 雖然省一個模型也稍快，
+> 但實測品質問題嚴重，不適合正式場合使用。
 
 ```bash
 # 中文語音 → 日文字幕（Whisper 做不到）
@@ -410,6 +415,26 @@ uv run livestt -e apple -l en-US --translate-to zh-TW
 # 搭配浮動字幕視窗，做雙語簡報
 uv run livestt -e apple -l zh-TW --translate-to en -u overlay
 ```
+
+### 為什麼建議別用 `--task translate`
+
+Whisper 的翻譯是它多任務訓練的**附帶能力**，不是專門優化的目標。
+以六句國語測試（`say` 合成，M5 Max 實測）：
+
+| 原句 | Whisper large-v3 | Qwen ASR + LLM |
+|---|---|---|
+| 預算是新臺幣**三百五十萬元** | "**350,000** yuan" ❌ 差十倍、幣別也錯 | "3.5 million **New Taiwan dollars**" ✅ |
+| **聲學模型**與**客語**轉譯 | "**life-and-death** model…**class to class**" ❌ | "**acoustic model**…**Hakka**" ✅ |
+| 第三**季**推出新版本 | "third **season**" ❌ | "third **quarter**" ✅ |
+
+`whisper-medium` 更不可靠 —— 同一句測試它直接輸出日文（「はため だ」）。
+`whisper-large-v3-turbo` 則根本不支援翻譯。
+
+數字錯十倍這種問題，在簡報講預算時是災難級的。兩段式用專門的 ASR 加上
+現代 LLM，各司其職，而且還能用 `--hotwords` 與 `--glossary` 進一步控制。
+
+> 以上是六句合成語音的結果，樣本不大，但錯誤的性質（數字、術語、商業用語）
+> 相當系統性，不像偶發失誤。
 
 ### 雙語字幕
 
@@ -878,8 +903,8 @@ uv run livestt --translate-to en --translate-model mlx-community/Qwen3-1.7B-4bit
 
 **`--task translate` 說不支援**
 
-只有 `whisper` 有內建翻譯。其他引擎請改用 `--translate-to`，
-它三個引擎都能用而且不限英文。兩者不能同時指定。
+只有 `whisper` 有內建翻譯。改用 `--translate-to` 即可 —— 它三個引擎都能用、
+不限英文，而且[品質較佳](#為什麼建議別用---task-translate)。兩者不能同時指定。
 
 **顯示方塊字（豆腐字）**
 
