@@ -246,3 +246,44 @@ def test_queue_drops_oldest_when_recognition_falls_behind():
 
     pipe.stop()
     pipe.wait(timeout=3.0)
+
+
+def test_writes_transcript_with_timing(tmp_path):
+    """辨識結果要連同時間位置寫進逐字稿。"""
+    from livestt.transcript import TranscriptWriter
+
+    path = tmp_path / "talk.txt"
+    sink = RecordingSink()
+    with TranscriptWriter(path) as log:
+        pipe = Pipeline(CountingEngine(), sink, VADConfig(), transcript=log)
+        pipe.start()
+        assert run_until(lambda: len(sink.texts) >= 2)
+        pipe.stop()
+        pipe.wait(timeout=3.0)
+
+    content = path.read_text(encoding="utf-8")
+    assert "句子 1" in content and "句子 2" in content
+    assert "[00:00:" in content
+
+
+def test_transcript_write_failure_does_not_stop_recognition(tmp_path):
+    """寫檔壞掉時應該繼續辨識，只回報一次錯誤。"""
+    from livestt.transcript import TranscriptWriter
+
+    class BrokenWriter(TranscriptWriter):
+        def write(self, entry):
+            raise OSError("磁碟已滿")
+
+    sink = RecordingSink()
+    pipe = Pipeline(
+        CountingEngine(), sink, VADConfig(),
+        transcript=BrokenWriter(tmp_path / "x.txt"),
+    )
+    pipe.start()
+
+    assert run_until(lambda: len(sink.texts) >= 2)
+    pipe.stop()
+    pipe.wait(timeout=3.0)
+
+    assert sum("磁碟已滿" in e for e in sink.errors) == 1  # 只回報一次
+    assert not pipe.stopped or len(sink.texts) >= 2       # 辨識沒有中斷

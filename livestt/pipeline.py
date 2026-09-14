@@ -7,16 +7,31 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
+from dataclasses import dataclass
 
 from .audio import Microphone, pcm_to_float32
 from .engines.base import STTEngine
 from .postprocess import DEFAULT_CONFIG, to_taiwan_traditional
+from .transcript import Entry, TranscriptWriter
 from .translate import Translator
 from .ui.base import Sink
 from .vad import SileroVAD, VADConfig
 
 #: 佇列上限。堆積到這個程度代表機器跟不上，再收也只是讓延遲無限增加
 MAX_PENDING = 32
+
+#: 16-bit 單聲道 16 kHz：每秒 32000 bytes
+BYTES_PER_SECOND = 16000 * 2
+
+
+@dataclass(frozen=True)
+class Segment:
+    """一段待辨識的語音，附帶它在工作階段中的時間位置（秒）。"""
+
+    audio: bytes
+    start: float
+    end: float
 
 
 class Pipeline:
@@ -31,6 +46,7 @@ class Pipeline:
         bilingual: bool = False,
         convert_original: bool = False,
         opencc_config: str = DEFAULT_CONFIG,
+        transcript: TranscriptWriter | None = None,
     ) -> None:
         self.engine = engine
         self.sink = sink
@@ -43,8 +59,12 @@ class Pipeline:
         # 原文的簡繁轉換獨立判斷：譯文看目標語言，原文看辨識語言
         self.convert_original = convert_original
         self.opencc_config = opencc_config
+        self.transcript = transcript
 
-        self._queue: queue.Queue[bytes] = queue.Queue(maxsize=MAX_PENDING)
+        self._started_at = 0.0
+        self._entry_count = 0
+
+        self._queue: queue.Queue[Segment] = queue.Queue(maxsize=MAX_PENDING)
         self._stop = threading.Event()
         self._ready = threading.Event()
         self._threads: list[threading.Thread] = []
@@ -88,7 +108,7 @@ class Pipeline:
 
         while not self._stop.is_set():
             try:
-                audio_bytes = self._queue.get(timeout=0.3)
+                segment = self._queue.get(timeout=0.3)
             except queue.Empty:
                 continue
 
@@ -98,7 +118,7 @@ class Pipeline:
                     f"⏳ 辨識中…（尚有 {pending} 句待處理）" if pending else "⏳ 辨識中…"
                 )
 
-                text = self.engine.transcribe(pcm_to_float32(audio_bytes))
+                text = self.engine.transcribe(pcm_to_float32(segment.audio))
                 original = None
 
                 if text and self.translator is not None:
@@ -117,6 +137,7 @@ class Pipeline:
 
                 if text:
                     self.sink.on_text(text, original)
+                    self._record(segment, text, original)
                 else:
                     self.sink.on_status("🎤 等待說話…")
             except Exception as exc:
@@ -131,19 +152,25 @@ class Pipeline:
                 return
 
         vad = SileroVAD(self.vad_config)
+        self._started_at = time.monotonic()
         try:
             with Microphone(self.device) as mic:
                 for chunk in mic.chunks():
                     if self._stop.is_set():
                         return
-                    for segment in vad.process(chunk):
-                        self._enqueue(segment)
+                    for audio in vad.process(chunk):
+                        # 語音在此刻結束，往回推它的長度就是起點
+                        end = time.monotonic() - self._started_at
+                        duration = len(audio) / BYTES_PER_SECOND
+                        self._enqueue(
+                            Segment(audio, max(0.0, end - duration), end)
+                        )
         except Exception as exc:
             if not self._stop.is_set():
                 self.sink.on_error(f"錄音失敗：{exc}")
                 self._stop.set()
 
-    def _enqueue(self, segment: bytes) -> None:
+    def _enqueue(self, segment: Segment) -> None:
         try:
             self._queue.put_nowait(segment)
         except queue.Full:
@@ -156,3 +183,22 @@ class Pipeline:
                 pass
             self._queue.put_nowait(segment)
             self.sink.on_error("⚠️ 辨識速度跟不上，已略過最舊的一句")
+
+    def _record(self, segment: Segment, text: str, original: str | None) -> None:
+        """寫入逐字稿。寫檔失敗不該中斷辨識，所以錯誤只回報一次。"""
+        if self.transcript is None:
+            return
+        self._entry_count += 1
+        try:
+            self.transcript.write(
+                Entry(
+                    index=self._entry_count,
+                    start=segment.start,
+                    end=segment.end,
+                    text=text,
+                    original=original,
+                )
+            )
+        except OSError as exc:
+            self.sink.on_error(f"逐字稿寫入失敗：{exc}")
+            self.transcript = None

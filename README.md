@@ -22,6 +22,7 @@
 - [引擎詳解](#引擎詳解)
 - [浮動字幕視窗](#浮動字幕視窗)
 - [翻譯](#翻譯)
+- [逐字稿與字幕檔](#逐字稿與字幕檔)
 - [熱詞](#熱詞)
 - [語音偵測參數](#語音偵測參數)
 - [自動簡繁轉換](#自動簡繁轉換)
@@ -192,8 +193,11 @@ uv run livestt --list-devices    # 錄音裝置
 最低延遲，零下載：
 
 ```bash
-uv run livestt -e apple -l zh-TW -u overlay --hotwords "講者名字,專案代號"
+uv run livestt -e apple -l zh-TW -u overlay --hotwords "講者名字,專案代號" \
+  --log "talk-$(date +%F).srt"
 ```
+
+`--log` 讓簡報結束後留下完整紀錄 —— 浮動字幕講完就消失，沒有它就什麼都不剩。
 
 ### 雙語簡報，聽眾有外國人
 
@@ -437,6 +441,52 @@ M5 Max 上實測，ASR 加翻譯的**總延遲約 0.3 秒**：
 
 ---
 
+## 逐字稿與字幕檔
+
+浮動字幕視窗的內容講完就消失了。`--log` 會把每一句辨識結果寫進檔案，
+**格式由副檔名決定**：
+
+```bash
+# 純文字，帶時間戳
+uv run livestt -u overlay --log talk.txt
+
+# SRT 字幕檔，可直接配合錄影使用
+uv run livestt -u overlay --log talk.srt
+
+# 加上日期，避免覆蓋
+uv run livestt -u overlay --log "talk-$(date +%F-%H%M).srt"
+```
+
+純文字輸出：
+
+```
+# LiveSTT 逐字稿
+# 開始時間：2026-09-14 15:04:05
+# 引擎：qwen
+
+[00:00:03] 這次簡報會談到聲學模型與客語轉譯的部分。
+[00:00:09] 我們用 MLX 框架在 Apple Silicon 上跑 Whisper 模型。
+```
+
+SRT 輸出（時間軸從程式啟動起算）：
+
+```
+1
+00:00:03,120 --> 00:00:07,450
+這次簡報會談到聲學模型與客語轉譯的部分。
+```
+
+搭配 `--bilingual` 時，原文與譯文都會記錄；SRT 會把兩者放進同一個字幕區塊，
+播放時上下兩行一起顯示。
+
+> 每辨識完一句就立即寫入並 flush，程式中途被中斷也不會遺失已辨識的內容。
+
+> **想在終端機看到即時輸出又要存檔？** 終端機模式直接用 shell 導向即可：
+> `uv run livestt -e qwen 2>&1 | tee talk.txt`。`--log` 的價值在於
+> **浮動字幕模式**，因為那時終端機本來就沒有內容可導。
+
+---
+
 ## 熱詞
 
 把辨識結果往特定詞彙偏置，對人名、專有名詞、術語特別有效。
@@ -546,6 +596,7 @@ uv run livestt --opencc s2twp
 | `--bilingual` | | 原文與譯文一起顯示（需 `--translate-to`）| 關閉 |
 | `--traditional` | | `auto`／`on`／`off` | `auto` |
 | `--opencc` | | `s2tw`／`s2twp`／`s2t` | `s2tw` |
+| `--log` | | 逐字稿檔案（`.srt` 輸出字幕檔）| 不輸出 |
 | `--device` | | 錄音裝置編號 | 系統預設 |
 
 ### 語音偵測
@@ -628,6 +679,7 @@ LiveSTT-for-Mac/
 │   ├── vad.py              # Silero VAD 斷句
 │   ├── postprocess.py      # OpenCC 簡繁轉換
 │   ├── translate.py        # 外接 LLM 翻譯層
+│   ├── transcript.py       # 逐字稿／SRT 輸出
 │   ├── engines/
 │   │   ├── base.py         # STTEngine 抽象介面
 │   │   ├── __init__.py     # 引擎註冊表
@@ -647,6 +699,8 @@ LiveSTT-for-Mac/
 │   ├── test_pipeline.py    # 執行緒、佇列、錯誤處理
 │   ├── test_cli.py         # 參數解析與引擎選擇
 │   ├── test_translate.py   # 提示組裝、輸出清理、術語表
+│   ├── test_transcript.py  # 逐字稿格式與時間軸
+│   ├── test_postprocess.py # 簡繁轉換
 │   └── test_overlay_style.py
 ├── models/                 # 轉換後的本地模型（權重不進版控）
 ├── pyproject.toml

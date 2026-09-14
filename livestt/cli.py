@@ -11,6 +11,7 @@ from pathlib import Path
 from . import postprocess, translate
 from .engines import DEFAULT_ENGINE, ENGINES, EngineError, create_engine
 from .pipeline import Pipeline
+from .transcript import TranscriptWriter
 from .vad import VADConfig
 
 EPILOG = """\
@@ -25,6 +26,7 @@ EPILOG = """\
   livestt -e apple --translate-to ja        中文語音 → 日文字幕
   livestt -e apple --translate-to zh-TW -l en   英文語音 → 繁中字幕
   livestt -e apple --translate-to en --bilingual  雙語字幕，原文與譯文並陳
+  livestt -u overlay --log talk.srt         浮動字幕，同時存成 SRT 字幕檔
 
 翻譯的兩條路：
   --task translate    Whisper 內建，單次推論較省資源，但只能翻成英文
@@ -112,6 +114,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=postprocess.DEFAULT_CONFIG,
         help=f"簡繁轉換配置（預設 {postprocess.DEFAULT_CONFIG}）。"
              "s2twp 會額外轉換大陸用語，但可能誤轉「保存」等常用詞",
+    )
+    core.add_argument(
+        "--log",
+        metavar="檔案",
+        help="把逐字稿寫入檔案。副檔名為 .srt 時輸出 SRT 字幕，其餘輸出帶時間的純文字。"
+             "浮動字幕視窗模式下特別有用，否則講完就沒有紀錄",
     )
     core.add_argument("--device", type=int, help="錄音裝置編號，見 --list-devices")
 
@@ -285,6 +293,9 @@ def print_banner(args, engine, convert_tw: bool, translator=None) -> None:
         f"VAD：門檻 {args.speech_threshold}｜靜音 {args.silence_duration}s｜"
         f"最短 {args.min_speech_duration}s｜緩衝 {args.speech_pad_duration}s"
     )
+    if args.log:
+        kind = "SRT 字幕" if str(args.log).lower().endswith(".srt") else "純文字"
+        print(f"逐字稿：{args.log}（{kind}）")
     if args.ui == "overlay":
         print(f"字幕：第 {args.screen} 個螢幕｜{args.lines} 行｜{args.font_size}px｜{args.color}")
         print("      可用滑鼠拖動視窗位置")
@@ -339,6 +350,13 @@ def main(argv: list[str] | None = None) -> int:
             task=args.task,
             hotwords=hotwords,
         )
+
+        transcript = None
+        if args.log:
+            header = f"引擎：{args.engine}"
+            if args.translate_to:
+                header += f"｜翻譯：{args.translate_to}"
+            transcript = TranscriptWriter(Path(args.log), header=header)
 
         translator = None
         if args.translate_to:
@@ -397,11 +415,19 @@ def main(argv: list[str] | None = None) -> int:
             bilingual=args.bilingual,
             convert_original=convert_original,
             opencc_config=args.opencc,
+            transcript=transcript,
         )
 
     except (EngineError, ValueError) as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1
+
+    if transcript is not None:
+        try:
+            transcript.open()
+        except OSError as exc:
+            print(f"❌ 無法寫入逐字稿 {args.log}：{exc}", file=sys.stderr)
+            return 1
 
     done = threading.Event()
 
@@ -416,6 +442,9 @@ def main(argv: list[str] | None = None) -> int:
         engine.close()
         if translator is not None:
             translator.close()
+        if transcript is not None:
+            transcript.close()
+            print(f"逐字稿已儲存：{transcript.path}")
         print("已停止")
         sys.stdout.flush()
 
