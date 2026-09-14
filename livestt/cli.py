@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import translate
+from . import postprocess, translate
 from .engines import DEFAULT_ENGINE, ENGINES, EngineError, create_engine
 from .pipeline import Pipeline
 from .vad import VADConfig
@@ -105,6 +105,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["auto", "on", "off"],
         default="auto",
         help="輸出轉成臺灣繁體。auto 會依引擎與模型自動判斷（預設 auto）",
+    )
+    core.add_argument(
+        "--opencc",
+        choices=list(postprocess.CONFIGS),
+        default=postprocess.DEFAULT_CONFIG,
+        help=f"簡繁轉換配置（預設 {postprocess.DEFAULT_CONFIG}）。"
+             "s2twp 會額外轉換大陸用語，但可能誤轉「保存」等常用詞",
     )
     core.add_argument("--device", type=int, help="錄音裝置編號，見 --list-devices")
 
@@ -272,7 +279,7 @@ def print_banner(args, engine, convert_tw: bool, translator=None) -> None:
         if args.bilingual:
             print("顯示：雙語（原文 + 譯文）")
     if convert_tw:
-        print("簡繁轉換：✓ 臺灣正體（OpenCC s2twp）")
+        print(f"簡繁轉換：✓ 臺灣正體（OpenCC {args.opencc}）")
     print("-" * 56)
     print(
         f"VAD：門檻 {args.speech_threshold}｜靜音 {args.silence_duration}s｜"
@@ -389,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
             translator=translator,
             bilingual=args.bilingual,
             convert_original=convert_original,
+            opencc_config=args.opencc,
         )
 
     except (EngineError, ValueError) as exc:

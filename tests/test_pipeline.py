@@ -112,7 +112,7 @@ def test_transcribes_segments_and_shuts_down_cleanly():
 
 def test_applies_traditional_conversion(monkeypatch):
     monkeypatch.setattr(
-        pipeline_module, "to_taiwan_traditional", lambda text: f"繁[{text}]"
+        pipeline_module, "to_taiwan_traditional", lambda text, config=None: f"繁[{text}]"
     )
     sink = RecordingSink()
     pipe = Pipeline(CountingEngine(), sink, VADConfig(), convert_tw=True)
@@ -217,7 +217,7 @@ def test_bilingual_without_translator_is_inert():
 def test_original_uses_its_own_conversion_setting(monkeypatch):
     """譯文看目標語言、原文看辨識語言，兩者的簡繁轉換各自獨立。"""
     monkeypatch.setattr(
-        pipeline_module, "to_taiwan_traditional", lambda text: f"繁[{text}]"
+        pipeline_module, "to_taiwan_traditional", lambda text, config=None: f"繁[{text}]"
     )
     sink = RecordingSink()
     pipe = Pipeline(

@@ -10,7 +10,7 @@ import threading
 
 from .audio import Microphone, pcm_to_float32
 from .engines.base import STTEngine
-from .postprocess import to_taiwan_traditional
+from .postprocess import DEFAULT_CONFIG, to_taiwan_traditional
 from .translate import Translator
 from .ui.base import Sink
 from .vad import SileroVAD, VADConfig
@@ -30,6 +30,7 @@ class Pipeline:
         translator: Translator | None = None,
         bilingual: bool = False,
         convert_original: bool = False,
+        opencc_config: str = DEFAULT_CONFIG,
     ) -> None:
         self.engine = engine
         self.sink = sink
@@ -41,6 +42,7 @@ class Pipeline:
         self.bilingual = bilingual and translator is not None
         # 原文的簡繁轉換獨立判斷：譯文看目標語言，原文看辨識語言
         self.convert_original = convert_original
+        self.opencc_config = opencc_config
 
         self._queue: queue.Queue[bytes] = queue.Queue(maxsize=MAX_PENDING)
         self._stop = threading.Event()
@@ -103,7 +105,7 @@ class Pipeline:
                     self.sink.on_status("⏳ 翻譯中…")
                     if self.bilingual:
                         original = (
-                            to_taiwan_traditional(text)
+                            to_taiwan_traditional(text, self.opencc_config)
                             if self.convert_original
                             else text
                         )
@@ -111,7 +113,7 @@ class Pipeline:
 
                 # 簡繁轉換放在最後，作用對象是實際要顯示的文字
                 if self.convert_tw:
-                    text = to_taiwan_traditional(text)
+                    text = to_taiwan_traditional(text, self.opencc_config)
 
                 if text:
                     self.sink.on_text(text, original)
