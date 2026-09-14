@@ -267,10 +267,17 @@ uv run livestt -m whisper-large-v2-taiwanese-hakka-v1-mlx -u overlay --font-name
 
 ### 聽英文演講，要中文字幕
 
-Whisper 內建的翻譯做不到這個方向，必須用 `--translate-to`：
+Whisper 內建的翻譯只能翻成英文，做不到這個方向，必須用 `--translate-to`：
 
 ```bash
 uv run livestt -e apple -l en-US --translate-to zh-TW -u overlay
+```
+
+講稿裡有專有名詞時，[熱詞與術語表兩個都要設](#熱詞與術語表的差別)：
+
+```bash
+uv run livestt -e apple -l en-US --translate-to zh-TW -u overlay \
+  --hotwords "Hakka,Taiwanese" --glossary "Hakka=臺灣客語,Taiwanese=臺灣台語"
 ```
 
 ### 環境吵雜
@@ -540,6 +547,34 @@ uv run livestt --hotwords hotwords.txt
 | `whisper` | `initial_prompt` 提示條件化 | ⚠️ 較弱 |
 
 > Whisper 沒有真正的熱詞 API，只能靠 prompt 誘導解碼器。詞給太多反而可能誘發幻覺，建議控制在十個以內。
+
+### 熱詞與術語表的差別
+
+兩者**作用在不同階段**，翻譯時通常兩個都要設：
+
+```
+語音 ──[--hotwords]──> 辨識文字 ──[--glossary]──> 譯文
+```
+
+錯誤一旦發生在辨識階段，再完整的術語表也救不回來 ——
+翻譯模型只會忠實地翻譯它收到的錯誤文字。
+
+實測「聽英文講稿、要繁中字幕」這句：
+*"The acoustic model struggles with low-resource languages like Hakka and Taiwanese."*
+
+| 設定 | 辨識結果 | 譯文 |
+|---|---|---|
+| 只有 `--glossary` | …like **hacker** and Taiwanese ❌ | 如**哈克語**和臺灣台語 ❌ |
+| 加上 `--hotwords` | …like **Hakka** and Taiwanese ✅ | 如**臺灣客語**和臺灣台語 ✅ |
+
+英文的 `Hakka` 被聽成 `hacker`，術語表裡的 `Hakka=臺灣客語` 因此從未被觸發。
+補上 `--hotwords Hakka` 修正辨識之後，術語表才派得上用場。
+
+```bash
+uv run livestt -e apple -l en-US --translate-to zh-TW \
+  --hotwords "Hakka,Taiwanese,acoustic model" \
+  --glossary "Hakka=臺灣客語,Taiwanese=臺灣台語,acoustic model=聲學模型"
+```
 
 ---
 

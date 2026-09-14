@@ -136,6 +136,10 @@ PyObjC 的 `stopEventLoop()` 在找不到 RunLoopStopper 時走 `NSApp.terminate
 
 - **只有 Whisper 能翻譯**，而且只能翻成英文。`create_engine()` 會擋掉其他引擎的
   `--task translate`，這是刻意的，不要改成靜默忽略。
+- **`--hotwords` 與 `--glossary` 作用在不同階段**，不要混為一談：
+  前者偏置 ASR、後者約束翻譯。辨識階段就錯掉的詞，術語表救不回來
+  （實測：英文 `Hakka` 被聽成 `hacker`，術語表的 `Hakka=…` 從未觸發）。
+  翻譯情境下兩個通常都要設。
 - **熱詞機制三家不同**：Qwen 原生 `hotwords`、Apple 用 `contextualStrings`、
   Whisper 只有 `initial_prompt`（提示條件化，效果較弱且提示過長會誘發幻覺）。
   對外統一成一個 `--hotwords` 參數。
