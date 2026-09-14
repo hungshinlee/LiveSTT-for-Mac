@@ -1,6 +1,7 @@
 """辨識結果的後處理。"""
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 
 #: 預設的 OpenCC 配置。
@@ -26,22 +27,45 @@ CONFIGS = {
 #: 只套用於臺灣導向的配置（s2t 是通用繁體，不涉及臺灣命名慣例）
 TAIWAN_CONFIGS = {"s2tw", "s2twp"}
 
-#: OpenCC 轉換之後要還原的詞。
+#: 「臺」作為詞尾時，前面常出現的字。
 #:
-#: OpenCC 會把「台」一律正規化成「臺」，但語言名稱的官方寫法是「臺灣台語」
-#: —— 教育部 2024 年定名時刻意混用兩字。照 OpenCC 的結果會得到「臺灣臺語」，
-#: 那不是正式寫法。
+#: 用來避免誤判：「電視臺電話」裡的「臺電」並不是台電公司，
+#: 「電視臺語音」裡的「臺語」也不是語言名稱。少了這道防線，
+#: 單純的字串取代會把這些句子改壞。
+_TAIL_CHARS = "視象文測舞平後前講陽月燈望砲櫃吧天電斷看"
+
+#: OpenCC 轉換之後要還原的專有名詞，格式為 (正規表示式, 取代結果)。
 #:
-#: 這裡只列真正有官方依據的例外，不要拿來做一般性的用詞替換 ——
+#: 「臺」一律照教育部標準（臺北、臺中、舞臺、電視臺），只有專有名詞例外：
+#:
+#: - 語言名稱：官方寫法是「臺灣台語」，教育部 2024 年定名時刻意混用兩字
+#: - 人名與公司登記名稱：本來就寫「台」，改成「臺」等於寫錯名字
+#:
+#: 這張表**只收有官方或登記依據的詞**，不要拿來做一般性的用詞替換 ——
 #: 那正是我們不使用 s2twp 的理由。
-EXCEPTIONS = {
-    "臺語": "台語",
-}
+EXCEPTIONS = [
+    # 語言名稱
+    (rf"(?<![{_TAIL_CHARS}])臺語", "台語"),
+    # 人名
+    (r"郭臺銘", "郭台銘"),
+    # 公司登記名稱（三字以上不需防呆，不會與其他詞相接）
+    (r"臺積電", "台積電"),
+    (r"臺達電", "台達電"),
+    (r"臺灣積體電路", "台灣積體電路"),
+    # 公司登記名稱（兩字，需要防呆）
+    (rf"(?<![{_TAIL_CHARS}])臺塑", "台塑"),
+    (rf"(?<![{_TAIL_CHARS}])臺電(?!視)", "台電"),
+    (rf"(?<![{_TAIL_CHARS}])臺泥", "台泥"),
+    (rf"(?<![{_TAIL_CHARS}])臺糖", "台糖"),
+    (rf"(?<![{_TAIL_CHARS}])臺鹽", "台鹽"),
+]
+
+_COMPILED = [(re.compile(pattern), replacement) for pattern, replacement in EXCEPTIONS]
 
 
 def _apply_exceptions(text: str) -> str:
-    for wrong, right in EXCEPTIONS.items():
-        text = text.replace(wrong, right)
+    for pattern, replacement in _COMPILED:
+        text = pattern.sub(replacement, text)
     return text
 
 

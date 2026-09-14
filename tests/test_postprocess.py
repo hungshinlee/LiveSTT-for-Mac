@@ -51,28 +51,70 @@ class TestExplicitConfigs:
             assert to_taiwan_traditional("语音", config)
 
 
-class TestTaiwanNamingExceptions:
-    """OpenCC 會把「台」一律轉成「臺」，但語言名稱的官方寫法是「臺灣台語」。"""
+class TestProperNounExceptions:
+    """「臺」一律照教育部標準，只有專有名詞例外。"""
 
     @pytest.mark.parametrize(
         "simplified,expected",
         [
+            # 語言名稱：官方寫法刻意混用兩字
             ("台语", "台語"),
             ("台湾台语", "臺灣台語"),
             ("我在学台语", "我在學台語"),
-            ("国台语双声道", "國台語雙聲道"),
+            # 人名
+            ("郭台铭", "郭台銘"),
+            ("郭台铭创办鸿海", "郭台銘創辦鴻海"),
+            # 公司登記名稱
+            ("台积电", "台積電"),
+            ("台达电", "台達電"),
+            ("台塑", "台塑"),
+            ("台电", "台電"),
+            ("台泥", "台泥"),
+            ("台糖", "台糖"),
+            ("台盐", "台鹽"),
         ],
     )
-    def test_taiwanese_keeps_its_official_spelling(self, simplified, expected):
+    def test_proper_nouns_keep_tai(self, simplified, expected):
+        assert to_taiwan_traditional(simplified) == expected
+
+    @pytest.mark.parametrize(
+        "simplified,expected",
+        [
+            # 地名照教育部標準
+            ("台北", "臺北"), ("台中", "臺中"), ("台南", "臺南"),
+            ("台东", "臺東"), ("台湾", "臺灣"),
+            # 機構官方就用「臺」
+            ("台大", "臺大"), ("台铁", "臺鐵"),
+            # 一般名詞照教育部標準，不管日常怎麼寫
+            ("舞台", "舞臺"), ("电视台", "電視臺"), ("电台", "電臺"),
+            ("平台", "平臺"), ("月台", "月臺"), ("讲台", "講臺"),
+            ("阳台", "陽臺"), ("台阶", "臺階"),
+        ],
+    )
+    def test_everything_else_uses_tai_traditional(self, simplified, expected):
+        assert to_taiwan_traditional(simplified) == expected
+
+    @pytest.mark.parametrize(
+        "simplified,expected",
+        [
+            # 「臺」是前一個詞的詞尾，後面剛好接上會撞名的字
+            ("电视台电话", "電視臺電話"),
+            ("气象台电脑", "氣象臺電腦"),
+            ("电视台糖果", "電視臺糖果"),
+            ("电视台塑胶", "電視臺塑膠"),
+            ("天文台电视", "天文臺電視"),
+            ("电视台语音", "電視臺語音"),
+            ("电台电波", "電臺電波"),
+            ("观测台电源", "觀測臺電源"),
+        ],
+    )
+    def test_does_not_misfire_on_word_boundaries(self, simplified, expected):
+        """單純的字串取代會把這些句子改壞，所以例外規則帶了否定回顧。"""
         assert to_taiwan_traditional(simplified) == expected
 
     def test_already_traditional_is_also_normalised(self):
         assert to_taiwan_traditional("臺語") == "台語"
-
-    @pytest.mark.parametrize("simplified,expected", [("台湾", "臺灣"), ("台北", "臺北")])
-    def test_other_uses_of_tai_are_untouched(self, simplified, expected):
-        """例外只針對語言名稱，地名仍照 OpenCC 的正規化。"""
-        assert to_taiwan_traditional(simplified) == expected
+        assert to_taiwan_traditional("郭臺銘") == "郭台銘"
 
     def test_exceptions_apply_to_s2twp_too(self):
         assert to_taiwan_traditional("台语", "s2twp") == "台語"
