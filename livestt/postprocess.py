@@ -23,6 +23,28 @@ CONFIGS = {
 }
 
 
+#: 只套用於臺灣導向的配置（s2t 是通用繁體，不涉及臺灣命名慣例）
+TAIWAN_CONFIGS = {"s2tw", "s2twp"}
+
+#: OpenCC 轉換之後要還原的詞。
+#:
+#: OpenCC 會把「台」一律正規化成「臺」，但語言名稱的官方寫法是「臺灣台語」
+#: —— 教育部 2024 年定名時刻意混用兩字。照 OpenCC 的結果會得到「臺灣臺語」，
+#: 那不是正式寫法。
+#:
+#: 這裡只列真正有官方依據的例外，不要拿來做一般性的用詞替換 ——
+#: 那正是我們不使用 s2twp 的理由。
+EXCEPTIONS = {
+    "臺語": "台語",
+}
+
+
+def _apply_exceptions(text: str) -> str:
+    for wrong, right in EXCEPTIONS.items():
+        text = text.replace(wrong, right)
+    return text
+
+
 @lru_cache(maxsize=4)
 def _converter(config: str):
     # OpenCC 初始化要讀字典檔，同一組配置只建一次
@@ -35,4 +57,7 @@ def to_taiwan_traditional(text: str, config: str = DEFAULT_CONFIG) -> str:
     """把簡體中文轉成臺灣繁體中文。"""
     if not text:
         return text
-    return _converter(config).convert(text)
+    converted = _converter(config).convert(text)
+    if config in TAIWAN_CONFIGS:
+        converted = _apply_exceptions(converted)
+    return converted

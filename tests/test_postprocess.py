@@ -51,6 +51,39 @@ class TestExplicitConfigs:
             assert to_taiwan_traditional("语音", config)
 
 
+class TestTaiwanNamingExceptions:
+    """OpenCC 會把「台」一律轉成「臺」，但語言名稱的官方寫法是「臺灣台語」。"""
+
+    @pytest.mark.parametrize(
+        "simplified,expected",
+        [
+            ("台语", "台語"),
+            ("台湾台语", "臺灣台語"),
+            ("我在学台语", "我在學台語"),
+            ("国台语双声道", "國台語雙聲道"),
+        ],
+    )
+    def test_taiwanese_keeps_its_official_spelling(self, simplified, expected):
+        assert to_taiwan_traditional(simplified) == expected
+
+    def test_already_traditional_is_also_normalised(self):
+        assert to_taiwan_traditional("臺語") == "台語"
+
+    @pytest.mark.parametrize("simplified,expected", [("台湾", "臺灣"), ("台北", "臺北")])
+    def test_other_uses_of_tai_are_untouched(self, simplified, expected):
+        """例外只針對語言名稱，地名仍照 OpenCC 的正規化。"""
+        assert to_taiwan_traditional(simplified) == expected
+
+    def test_exceptions_apply_to_s2twp_too(self):
+        assert to_taiwan_traditional("台语", "s2twp") == "台語"
+
+    def test_exceptions_skip_generic_traditional(self):
+        """s2t 是通用繁體，不涉及臺灣命名慣例，不套用例外。"""
+        from livestt.postprocess import TAIWAN_CONFIGS
+
+        assert "s2t" not in TAIWAN_CONFIGS
+
+
 class TestEdgeCases:
     def test_empty_string(self):
         assert to_taiwan_traditional("") == ""
