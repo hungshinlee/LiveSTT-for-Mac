@@ -72,6 +72,8 @@ class TestProperNounExceptions:
             ("台泥", "台泥"),
             ("台糖", "台糖"),
             ("台盐", "台鹽"),
+            ("台玻", "台玻"),
+            ("台湾玻璃工业", "台灣玻璃工業"),
         ],
     )
     def test_proper_nouns_keep_tai(self, simplified, expected):
@@ -102,6 +104,7 @@ class TestProperNounExceptions:
             ("气象台电脑", "氣象臺電腦"),
             ("电视台糖果", "電視臺糖果"),
             ("电视台塑胶", "電視臺塑膠"),
+            ("电视台玻璃", "電視臺玻璃"),
             ("天文台电视", "天文臺電視"),
             ("电视台语音", "電視臺語音"),
             ("电台电波", "電臺電波"),

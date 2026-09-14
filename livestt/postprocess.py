@@ -58,6 +58,8 @@ EXCEPTIONS = [
     (rf"(?<![{_TAIL_CHARS}])臺泥", "台泥"),
     (rf"(?<![{_TAIL_CHARS}])臺糖", "台糖"),
     (rf"(?<![{_TAIL_CHARS}])臺鹽", "台鹽"),
+    (rf"(?<![{_TAIL_CHARS}])臺玻", "台玻"),
+    (r"臺灣玻璃工業", "台灣玻璃工業"),
 ]
 
 _COMPILED = [(re.compile(pattern), replacement) for pattern, replacement in EXCEPTIONS]
