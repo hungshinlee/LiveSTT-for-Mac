@@ -847,6 +847,19 @@ uv run livestt --opencc s2twp
 | `--min-speech-duration` | 最短語音長度（秒），更短視為雜訊 | `0.2` |
 | `--speech-pad-duration` | 句首保留的緩衝（秒）| `0.1` |
 
+### 字幕視窗（`--ui overlay`）
+
+| 參數 | 簡寫 | 說明 | 預設 |
+|---|---|---|---|
+| `--screen` | `-s` | 顯示在第幾個螢幕（0 為主螢幕）| `0` |
+| `--font-size` | | 字體大小 | `36` |
+| `--font-name` | | 字體名稱，如 `HanaMinA` | 系統字體 |
+| `--lines` | | 顯示句數（雙語時每句兩行）| `3` |
+| `--color` | | 文字顏色或 `#RRGGBB` | `white` |
+| `--opacity` | | 背景透明度 0.0–1.0 | `0.85` |
+| `--width-ratio` | | 視窗寬度佔螢幕比例 | `0.8` |
+| `--bottom-margin` | | 距離螢幕底部的像素 | `50` |
+
 ### 查詢
 
 | 參數 | 說明 |
