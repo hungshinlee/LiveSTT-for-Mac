@@ -117,9 +117,9 @@
 | 組合 | 下載量 | 執行時記憶體 |
 |---|---|---|
 | 只用 `apple` | **0** | 極少 |
-| `apple` + 翻譯 | ~2.3 GB | ~3 GB |
+| `apple` + 翻譯 | ~4.3 GB | ~5 GB |
 | `whisper` large-v3 | ~3 GB | ~4 GB |
-| `qwen` 1.7B + 翻譯 | ~4 GB | ~5 GB |
+| `qwen` 1.7B + 翻譯（品質最佳組合）| ~6.1 GB | ~7 GB |
 
 `apple` 引擎不需要下載任何東西，在低規格機器或磁碟吃緊時是最實際的選擇。
 
@@ -264,6 +264,22 @@ uv run python tools/convert.py formospeech/whisper-large-v2-taiwanese-hakka-v1
 ./scripts/install_fonts.sh
 uv run livestt -m whisper-large-v2-taiwanese-hakka-v1-mlx -u overlay --font-name HanaMinA
 ```
+
+### 國語轉英文，品質優先
+
+實測六句（含財報數字、成語、會議時地）後品質最佳的組合，端對端約 0.52 秒／句：
+
+```bash
+uv run livestt -e qwen -l zh --translate-to en -u overlay \
+  --hotwords "你的術語" --glossary "術語=term"
+```
+
+`qwen` 的辨識在測試中六句全對，Apple 則漏掉過「功耗」這種關鍵詞
+（變成「三奈米製程比上一代降低了將近 40%」—— 降低什麼沒了），
+翻譯模型再強也補不回來。
+
+急著要低延遲時改用 `-e apple` 並加上 `--translate-model
+mlx-community/Qwen3-4B-Instruct-2507-4bit`，可壓到約 0.29 秒，代價是偶爾漏細節。
 
 ### 聽英文演講，要中文字幕
 
@@ -484,21 +500,35 @@ M5 Max 上實測，ASR 加翻譯的**總延遲約 0.3 秒**：
 
 | 組合 | 辨識 | 翻譯 | 總計 |
 |---|---|---|---|
-| `apple` → 英文 | 0.10s | 0.19s | **0.29s** |
-| `apple` → 日文 | 0.14s | 0.20s | **0.34s** |
+| `apple` + 4bit 翻譯 | 0.10s | 0.19s | **0.29s** |
+| `qwen` + 8bit 翻譯（預設）| 0.15s | 0.37s | **0.52s** |
+
+搭 `apple` 引擎最快；搭 `qwen` 辨識最準。Whisper large 則要留意延遲會疊加。
 
 搭 `apple` 引擎很舒服；搭 Whisper large 就要留意延遲會疊加。
 
 ### 翻譯模型
 
-`--translate-model` 可更換，預設 `mlx-community/Qwen3-4B-Instruct-2507-4bit`。
+`--translate-model` 可更換，預設 `mlx-community/Qwen3-4B-Instruct-2507-8bit`。
 
 | 模型 | 大小 | 說明 |
 |---|---|---|
-| `mlx-community/Qwen3-4B-Instruct-2507-4bit` | ~2.3 GB | 預設，品質與速度平衡 |
-| `mlx-community/Qwen3-4B-Instruct-2507-8bit` | ~4.3 GB | 品質略佳 |
-| `mlx-community/Qwen3-1.7B-4bit` | ~1.0 GB | 更輕量，術語較易出錯 |
-| `mlx-community/Qwen3-8B-4bit` | ~4.6 GB | 品質最佳 |
+| `mlx-community/Qwen3-4B-Instruct-2507-8bit` | ~4.3 GB | **預設，品質最佳** |
+| `mlx-community/Qwen3-4B-Instruct-2507-4bit` | ~2.3 GB | 快 0.13 秒／句，但會漏細節 |
+| `mlx-community/Qwen3-1.7B-4bit` | ~1.0 GB | 最輕量，術語較易出錯 |
+
+**為什麼預設不用 4bit？** 它會漏掉資訊：
+
+| 原文 | 4bit | 8bit（預設）|
+|---|---|---|
+| 營收**年增** 8.7% | "revenue increased by 8.7%" ❌ | "…8.7% **year-on-year**" ✅ |
+| 地點**改在**第三會議室 | "in Room 3" ❌ | "has been **changed to** the third conference room" ✅ |
+
+財報講「年增」和「增加」是兩回事；會議通知漏掉「改」可能讓人跑錯地方。
+磁碟或記憶體吃緊時再換 4bit。
+
+`Qwen3-8B-4bit` 實測速度與 4B-8bit 相同、品質相當，但檔案更大，
+而且是 hybrid-thinking 模型（翻譯用途上 Instruct 版本更對口），沒有理由選它。
 
 > **要留意的地方：** LLM 在辨識結果破碎時（環境吵雜、句子被切斷）可能自行補完內容。
 > 系統提示已要求模型不要杜撰，輸出長度上限也會隨輸入縮放，但無法完全根除。

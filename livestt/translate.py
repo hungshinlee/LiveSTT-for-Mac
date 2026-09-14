@@ -10,14 +10,15 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 
-DEFAULT_MODEL = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+#: 預設選 8bit 而非 4bit。實測 4bit 會漏掉細節 —— 「營收年增 8.7%」的
+#: 「年增」、「地點改在第三會議室」的「改」都不見了。多 0.13 秒/句換不漏資訊。
+DEFAULT_MODEL = "mlx-community/Qwen3-4B-Instruct-2507-8bit"
 
 #: --list 時顯示的常用翻譯模型：(repo, 大小, 說明)
 KNOWN_MODELS = [
-    ("mlx-community/Qwen3-4B-Instruct-2507-4bit", "~2.3 GB", "預設，品質與速度平衡"),
-    ("mlx-community/Qwen3-4B-Instruct-2507-8bit", "~4.3 GB", "品質略佳"),
-    ("mlx-community/Qwen3-1.7B-4bit", "~1.0 GB", "更輕量，術語較易出錯"),
-    ("mlx-community/Qwen3-8B-4bit", "~4.6 GB", "品質最佳，記憶體充足時可用"),
+    ("mlx-community/Qwen3-4B-Instruct-2507-8bit", "~4.3 GB", "預設，品質最佳"),
+    ("mlx-community/Qwen3-4B-Instruct-2507-4bit", "~2.3 GB", "快 0.13 秒，但會漏細節"),
+    ("mlx-community/Qwen3-1.7B-4bit", "~1.0 GB", "最輕量，術語較易出錯"),
 ]
 
 #: 語言代碼 → 給模型看的自然語言名稱

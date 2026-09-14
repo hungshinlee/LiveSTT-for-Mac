@@ -118,3 +118,21 @@ class TestParserConflict:
         """解析階段不擋，衝突在 main() 才報錯（帶完整說明）。"""
         args = build_parser().parse_args(["--task", "translate", "--translate-to", "ja"])
         assert args.task == "translate" and args.translate_to == "ja"
+
+
+class TestDefaults:
+    def test_default_model_is_the_8bit_instruct(self):
+        """4bit 會漏掉「年增」「改在」這類細節，預設刻意選 8bit。"""
+        from livestt.translate import DEFAULT_MODEL
+
+        assert DEFAULT_MODEL == "mlx-community/Qwen3-4B-Instruct-2507-8bit"
+
+    def test_default_is_listed_first(self):
+        from livestt.translate import DEFAULT_MODEL, KNOWN_MODELS
+
+        assert KNOWN_MODELS[0][0] == DEFAULT_MODEL
+
+    def test_translator_uses_the_default_when_unspecified(self):
+        from livestt.translate import DEFAULT_MODEL, QwenLMTranslator
+
+        assert QwenLMTranslator(target="en").model == DEFAULT_MODEL
