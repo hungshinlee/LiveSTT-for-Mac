@@ -22,6 +22,7 @@
 - [安裝](#安裝)
 - [快速開始](#快速開始)
 - [情境配方](#情境配方)
+- [音訊來源](#音訊來源)
 - [引擎詳解](#引擎詳解)
 - [浮動字幕視窗](#浮動字幕視窗)
 - [翻譯](#翻譯)
@@ -112,6 +113,7 @@
 - macOS，Apple Silicon（M1 以上）
 - Python 3.10+
 - 麥克風權限（首次執行時系統會詢問）
+- 轉錄電腦播放的聲音時，另需「螢幕與系統音訊錄製」權限（見[音訊來源](#音訊來源)）
 
 磁碟與記憶體需求依你選用的引擎而定：
 
@@ -161,6 +163,7 @@ uv pip install -e ".[apple]"      # 只用 macOS 內建引擎，最輕量
 uv pip install -e ".[whisper]"    # 只用 Whisper
 uv pip install -e ".[qwen]"       # 只用 Qwen3-ASR
 uv pip install -e ".[apple,translate]"   # macOS 引擎 + LLM 翻譯
+uv pip install -e ".[apple,system]"      # 再加上系統音訊擷取（--source system）
 ```
 
 ### 3. 確認可以執行
@@ -194,6 +197,9 @@ uv run livestt --ui overlay --screen 1
 
 # 翻譯成任何語言（三個引擎都適用）
 uv run livestt --engine apple --translate-to ja
+
+# 轉錄電腦正在播的聲音，而不是麥克風
+uv run livestt --source system -u overlay
 
 # 雙語字幕：原文與譯文並陳
 uv run livestt --engine apple --translate-to en --bilingual
@@ -266,6 +272,16 @@ uv run python tools/convert.py formospeech/whisper-large-v2-taiwanese-hakka-v1
 uv run livestt -m whisper-large-v2-taiwanese-hakka-v1-mlx -u overlay --font-name HanaMinA
 ```
 
+### 看英文影片，要中文字幕
+
+聲音直接取自電腦輸出，不經過麥克風，所以戴耳機也一樣有效：
+
+```bash
+uv run livestt --source system -e apple -l en --translate-to zh-TW -u overlay
+```
+
+影片配樂容易讓 VAD 誤判成語音，必要時把門檻調高：`--speech-threshold 0.6`。
+
 ### 國語轉英文，品質優先
 
 實測六句（含財報數字、成語、會議時地）後品質最佳的組合，端對端約 0.52 秒／句：
@@ -304,6 +320,42 @@ uv run livestt -e apple -l en-US --translate-to zh-TW -u overlay \
 ```bash
 uv run livestt -e apple -l zh-TW --speech-threshold 0.6 --min-speech-duration 0.3
 ```
+
+---
+
+## 音訊來源
+
+預設是麥克風。`--source system` 改成擷取**電腦本身正在播放的聲音** ——
+線上會議、影片、瀏覽器分頁、任何 app 發出的聲音都算。
+
+```bash
+uv run livestt --source system -u overlay
+```
+
+聲音照常從喇叭或耳機播出，不需要安裝 BlackHole 之類的虛擬音效卡，
+也不會錄到畫面 —— 底層用的是 ScreenCaptureKit，但畫面尺寸壓到 2×2 像素，實質只取聲音。
+
+### 開啟權限
+
+第一次使用需要授權，而且**改完設定要把終端機完全結束再重新開啟**：
+
+1. 系統設定 → 隱私權與安全性 → 螢幕與系統音訊錄製
+2. 勾選你的終端機程式（Terminal、iTerm…）
+3. **完全結束**終端機（⌘Q）再重新打開
+
+第 3 步不能省。macOS 只在行程啟動時讀一次這項設定，開新視窗或新分頁不會生效。
+
+### 幾個實際的注意事項
+
+| 狀況 | 說明 |
+|---|---|
+| 耳機 | 一樣有效。擷取的是系統的音訊輸出串流，不是喇叭發出的聲音 |
+| 範圍 | 整台機器的輸出，無法只挑某一個 app |
+| 自己的麥克風 | 不會被收進去。要同時錄自己講話與對方的聲音，目前得分兩次跑 |
+| 背景音樂 | 配樂與音效會讓 VAD 誤判成語音，可用 `--speech-threshold 0.6` 收緊 |
+| `--device` | 只對 `--source mic` 有意義，系統音訊不經過錄音裝置 |
+
+如果你的會議軟體只在麥克風端有聲音（例如自己講話那一路），那還是 `--source mic`。
 
 ---
 
@@ -836,7 +888,8 @@ uv run livestt --opencc s2twp
 | `--traditional` | | `auto`／`on`／`off` | `auto` |
 | `--opencc` | | `s2tw`／`s2twp`／`s2t` | `s2tw` |
 | `--log` | | 逐字稿檔案（`.srt` 輸出字幕檔）| 不輸出 |
-| `--device` | | 錄音裝置編號 | 系統預設 |
+| `--source` | | `mic` 麥克風／`system` 電腦播放的聲音 | `mic` |
+| `--device` | | 錄音裝置編號（只對 `--source mic` 有意義）| 系統預設 |
 
 ### 語音偵測
 
@@ -927,7 +980,8 @@ LiveSTT-for-Mac/
 ├── livestt/
 │   ├── cli.py              # 命令列入口，參數解析與組裝
 │   ├── pipeline.py         # 錄音 → VAD → 辨識 → 輸出 的串接
-│   ├── audio.py            # 麥克風擷取
+│   ├── audio.py            # 音訊來源介面、麥克風、重取樣
+│   ├── systemaudio.py      # 系統音訊擷取（ScreenCaptureKit）
 │   ├── vad.py              # Silero VAD 斷句
 │   ├── postprocess.py      # OpenCC 簡繁轉換
 │   ├── translate.py        # 外接 LLM 翻譯層
@@ -953,6 +1007,7 @@ LiveSTT-for-Mac/
 ├── tests/
 │   ├── test_vad.py         # 斷句狀態機
 │   ├── test_pipeline.py    # 執行緒、佇列、錯誤處理
+│   ├── test_audio.py       # 重取樣、混音、來源選擇
 │   ├── test_cli.py         # 參數解析與引擎選擇
 │   ├── test_translate.py   # 提示組裝、輸出清理、術語表
 │   ├── test_transcript.py  # 逐字稿格式與時間軸
@@ -1025,6 +1080,17 @@ uv run python scripts/check_docs.py
 
 - 系統設定 → 隱私權與安全性 → 麥克風 → 勾選你的終端機程式
 - `uv run livestt --list-devices` 確認裝置，必要時用 `--device N` 指定
+
+**`--source system` 說沒有權限，但我明明已經勾了**
+
+要把終端機**完全結束**（⌘Q）再重新打開。macOS 只在行程啟動時讀一次
+「螢幕與系統音訊錄製」的設定，開新視窗、新分頁或重跑指令都不會生效。
+
+**`--source system` 有聲音卻辨識不出東西**
+
+- 確認聲音真的在播，而且系統音量不是靜音（靜音時擷取到的是無聲）
+- 影片配樂會讓 VAD 一直誤判成語音，把 `--speech-threshold` 調到 `0.6`
+- 對方講的語言要跟 `--language` 對得上
 
 **辨識品質不佳**
 

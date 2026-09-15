@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from . import postprocess, translate
+from .audio import DEFAULT_SOURCE, SOURCES, AudioError, create_source
 from .translate import parse_glossary
 from .engines import DEFAULT_ENGINE, ENGINES, EngineError, create_engine
 from .pipeline import Pipeline
@@ -30,10 +31,17 @@ EPILOG = """\
   livestt -e apple --translate-to zh-TW -l en   英文語音 → 繁中字幕
   livestt -e apple --translate-to en --bilingual  雙語字幕，原文與譯文並陳
   livestt -u overlay --log talk.srt         浮動字幕，同時存成 SRT 字幕檔
+  livestt --source system -u overlay        聽電腦在播的影片，配上浮動字幕
 
 翻譯的兩條路：
   --task translate    Whisper 內建，單次推論較省資源，但只能翻成英文
   --translate-to X    外接 LLM，三個引擎都能用，可翻成任何語言
+
+音訊來源：
+  mic       麥克風（預設）
+  system    電腦正在播放的聲音 —— 影片、線上會議、瀏覽器分頁。
+            聲音照常從喇叭出來，不需要安裝虛擬音效卡，
+            但需要「螢幕與系統音訊錄製」權限，設定後要完全重開終端機
 
 支援的語言：
   英語        三個引擎都可以，apple 延遲最低
@@ -49,7 +57,7 @@ EPILOG = """\
 查詢：
   livestt --list            列出可用模型
   livestt --list-locales    列出 Apple 引擎支援的語言
-  livestt --list-devices    列出錄音裝置
+  livestt --list-devices    列出錄音裝置與音訊來源
 """
 
 
@@ -150,7 +158,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="把逐字稿寫入檔案。副檔名為 .srt 時輸出 SRT 字幕，其餘輸出帶時間的純文字。"
              "浮動字幕視窗模式下特別有用，否則講完就沒有紀錄",
     )
-    core.add_argument("--device", type=int, help="錄音裝置編號，見 --list-devices")
+    core.add_argument(
+        "--source",
+        choices=list(SOURCES),
+        default=DEFAULT_SOURCE,
+        help="音訊來源：mic 麥克風，system 電腦正在播放的聲音"
+             f"（預設 {DEFAULT_SOURCE}）。system 需要「螢幕與系統音訊錄製」權限",
+    )
+    core.add_argument(
+        "--device", type=int,
+        help="錄音裝置編號，見 --list-devices（只對 --source mic 有意義）",
+    )
 
     vad = parser.add_argument_group("語音偵測 (VAD)")
     vad.add_argument(
@@ -189,7 +207,8 @@ def build_parser() -> argparse.ArgumentParser:
     info.add_argument("--list", action="store_true", help="列出可用模型與引擎")
     info.add_argument("--list-locales", action="store_true",
                       help="列出 Apple 引擎支援的語言")
-    info.add_argument("--list-devices", action="store_true", help="列出錄音裝置")
+    info.add_argument("--list-devices", action="store_true",
+                      help="列出錄音裝置與可用的音訊來源")
 
     return parser
 
@@ -238,10 +257,16 @@ def show_locales() -> None:
 def show_devices() -> None:
     from .audio import input_devices
 
-    print("錄音裝置：")
+    print("音訊來源（--source）：")
+    for name, summary in SOURCES.items():
+        print(f"  {name:<8} {summary}")
+
+    print("\n錄音裝置（--device，只對 --source mic 有意義）：")
     for index, name, channels in input_devices():
         print(f"  [{index}] {name}（{channels} 聲道）")
+
     print("\n用法：livestt --device 1")
+    print("      livestt --source system    # 轉錄電腦正在播放的聲音")
 
 
 # ---- 設定組裝 -------------------------------------------------------------
@@ -304,11 +329,14 @@ def wants_traditional(
     return False
 
 
-def print_banner(args, engine, convert_tw: bool, translator=None, terms=None) -> None:
+def print_banner(args, engine, convert_tw: bool, translator=None, terms=None,
+                 source=None) -> None:
     print("=" * 56)
     print("LiveSTT — 離線即時語音轉文字（Apple Silicon GPU）")
     print("=" * 56)
     print(f"引擎：{engine.name} — {engine.describe()}")
+    if source is not None:
+        print(f"來源：{source.describe()}")
     print(f"任務：{'翻譯成英文' if args.task == 'translate' else '轉錄'}")
     print(f"語言：{args.language or '自動偵測'}")
     if translator is not None:
@@ -333,7 +361,10 @@ def print_banner(args, engine, convert_tw: bool, translator=None, terms=None) ->
         print(f"字幕：第 {args.screen} 個螢幕｜{args.lines} 行｜{args.font_size}px｜{args.color}")
         print("      可用滑鼠拖動視窗位置")
     print("=" * 56)
-    print("開始說話，按 Ctrl+C 結束\n")
+    if args.source == "system":
+        print("開始播放影片或會議，按 Ctrl+C 結束\n")
+    else:
+        print("開始說話，按 Ctrl+C 結束\n")
 
 
 # ---- 主流程 ---------------------------------------------------------------
@@ -384,6 +415,11 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         )
+
+        # 先建立音訊來源並做權限檢查：權限問題留到模型載完才爆的話，
+        # 使用者已經白等了十幾秒
+        source = create_source(args.source, args.device)
+        source.preflight()
 
         engine = create_engine(
             args.engine,
@@ -443,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
 
             sink = TerminalSink()
 
-        print_banner(args, engine, convert_tw, translator, terms)
+        print_banner(args, engine, convert_tw, translator, terms, source)
 
         pipeline = Pipeline(
             engine=engine,
@@ -455,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
                 speech_pad_duration=args.speech_pad_duration,
             ),
             convert_tw=convert_tw,
-            device=args.device,
+            source=source,
             translator=translator,
             bilingual=args.bilingual,
             convert_original=convert_original,
@@ -466,7 +502,7 @@ def main(argv: list[str] | None = None) -> int:
     except BrokenPipeError:
         # 輸出被導向 head 之類的指令並提早關閉，不是錯誤
         return 0
-    except (EngineError, ValueError) as exc:
+    except (AudioError, EngineError, ValueError) as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1
 

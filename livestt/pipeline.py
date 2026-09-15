@@ -10,7 +10,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from .audio import Microphone, pcm_to_float32
+from .audio import AudioSource, Microphone, pcm_to_float32
 from .engines.base import STTEngine
 from .postprocess import DEFAULT_CONFIG, to_taiwan_traditional
 from .transcript import Entry, TranscriptWriter
@@ -41,7 +41,7 @@ class Pipeline:
         sink: Sink,
         vad_config: VADConfig,
         convert_tw: bool = False,
-        device: int | None = None,
+        source: AudioSource | None = None,
         translator: Translator | None = None,
         bilingual: bool = False,
         convert_original: bool = False,
@@ -52,7 +52,8 @@ class Pipeline:
         self.sink = sink
         self.vad_config = vad_config
         self.convert_tw = convert_tw
-        self.device = device
+        # 音訊來源（麥克風或系統音訊）。兩者都吐 16 kHz 單聲道 16-bit PCM
+        self.source = source if source is not None else Microphone()
         self.translator = translator
         # 雙語：同時顯示辨識原文與譯文
         self.bilingual = bilingual and translator is not None
@@ -146,7 +147,7 @@ class Pipeline:
                 self._queue.task_done()
 
     def _capture_loop(self) -> None:
-        # 等模型就緒再開麥克風，避免預熱期間累積一堆過時音訊
+        # 等模型就緒再開音訊來源，避免預熱期間累積一堆過時音訊
         while not self._ready.is_set():
             if self._stop.wait(0.1):
                 return
@@ -154,8 +155,8 @@ class Pipeline:
         vad = SileroVAD(self.vad_config)
         self._started_at = time.monotonic()
         try:
-            with Microphone(self.device) as mic:
-                for chunk in mic.chunks():
+            with self.source as source:
+                for chunk in source.chunks():
                     if self._stop.is_set():
                         return
                     for audio in vad.process(chunk):

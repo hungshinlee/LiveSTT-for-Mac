@@ -21,12 +21,16 @@ apple = ["pyobjc-framework-Speech", "pyobjc-framework-AVFoundation"]
 qwen = ["mlx-audio"]
 # 外接 LLM 翻譯（--translate-to）
 translate = ["mlx-lm"]
+# 系統音訊擷取（--source system）
+system = ["pyobjc-framework-ScreenCaptureKit", "pyobjc-framework-libdispatch"]
 # 模型轉換工具（tools/convert.py）
 convert = ["safetensors", "huggingface_hub"]
 all = [
     "mlx-whisper",
     "pyobjc-framework-Speech",
     "pyobjc-framework-AVFoundation",
+    "pyobjc-framework-ScreenCaptureKit",
+    "pyobjc-framework-libdispatch",
     "mlx-audio",
     "mlx-lm",
     "safetensors",

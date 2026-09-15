@@ -110,6 +110,21 @@ def test_transcribes_segments_and_shuts_down_cleanly():
     assert not sink.errors
 
 
+def test_uses_the_audio_source_it_was_given():
+    """--source system 走的是同一條路：pipeline 只認 AudioSource 介面。"""
+    source = FakeMicrophone()
+    sink = RecordingSink()
+    pipe = Pipeline(CountingEngine(), sink, VADConfig(), source=source)
+    pipe.start()
+
+    assert run_until(lambda: sink.texts)
+    pipe.stop()
+    pipe.wait(timeout=3.0)
+
+    assert FakeMicrophone.released  # 用完一定要關掉
+    assert not sink.errors
+
+
 def test_applies_traditional_conversion(monkeypatch):
     monkeypatch.setattr(
         pipeline_module, "to_taiwan_traditional", lambda text, config=None: f"繁[{text}]"

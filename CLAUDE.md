@@ -7,11 +7,12 @@
 Apple Silicon Mac 上的離線即時語音轉文字：
 
 ```
-麥克風 → Silero VAD 斷句 → STTEngine → [Translator] → Sink
+AudioSource → Silero VAD 斷句 → STTEngine → [Translator] → Sink
 ```
 
-選項是正交的：三種辨識引擎（Whisper / macOS 內建 / Qwen3-ASR）× 兩種輸出
-（終端機 / 浮動字幕視窗）× 可選翻譯 × 可選雙語。
+選項是正交的：兩種音訊來源（麥克風 / 系統音訊）× 三種辨識引擎
+（Whisper / macOS 內建 / Qwen3-ASR）× 兩種輸出（終端機 / 浮動字幕視窗）
+× 可選翻譯 × 可選雙語。
 
 **專案聚焦於四種語言：英語、國語、臺灣台語、臺灣客語。**
 新增功能時以這四種為準，不要為了「反正模型支援」而把其他語言加回文件或範例。
@@ -22,7 +23,7 @@ Apple Silicon Mac 上的離線即時語音轉文字：
 ## 常用指令
 
 ```bash
-uv pip install -e ".[all,dev]"   # 安裝（含三個引擎與測試工具）
+uv pip install -e ".[all,dev]"   # 安裝（含三個引擎、系統音訊與測試工具）
 uv run pytest                    # 跑測試（快、不需麥克風、不下載模型）
 uv run livestt --list            # 列出引擎與模型
 uv run livestt --help            # 全部參數
@@ -58,8 +59,12 @@ Quartz.CGWindowListCopyWindowInfo(
 
 ## 架構
 
-三個抽象，其餘都是實作細節：
+四個抽象，其餘都是實作細節：
 
+- **`AudioSource`**（`livestt/audio.py`）— 音訊來源。context manager，
+  `chunks()` 一律吐 16 kHz 單聲道 16-bit PCM。取樣率轉換與聲道混音在這一層做完。
+  `preflight()` 在載入模型前檢查來源可用（例如系統音訊的權限），
+  不要讓使用者等完模型才發現不能錄。
 - **`STTEngine`**（`livestt/engines/base.py`）— 辨識引擎。
   生命週期是 `prepare()` → 多次 `transcribe()` → `close()`。
   `prepare()` 在背景執行緒中呼叫，可以耗時數秒（載模型、要權限）。
@@ -73,8 +78,9 @@ Quartz.CGWindowListCopyWindowInfo(
 錄音執行緒永遠不阻塞，辨識慢時只會在佇列堆積。佇列滿了會丟最舊的一句，
 因為對即時字幕來說，落後三十秒的正確字幕不如沒有。
 
-**音訊格式在邊界統一**：pipeline 負責把 16-bit PCM bytes 轉成 float32 numpy（16 kHz 單聲道、
-值域 [-1, 1]），引擎一律收到這個格式，不要在引擎裡重複做轉換。
+**音訊格式在邊界統一**：`AudioSource` 負責把來源的原生格式（系統音訊是 48 kHz
+float32 立體聲）轉成 16 kHz 單聲道 16-bit PCM，pipeline 再轉成 float32 numpy
+（值域 [-1, 1]）給引擎。引擎一律收到這個格式，不要在引擎裡重複做轉換。
 
 ### 新增一個引擎
 
@@ -86,6 +92,11 @@ CLI 的 `--engine` 選項、`--list` 輸出、翻譯能力檢查都會自動跟�
 
 引擎的相依套件一律在 `prepare()` 裡才 import，並在 `ImportError` 時拋出帶安裝指令的
 `EngineError` —— 這樣只裝了一個引擎的使用者不會因為別的引擎缺套件而無法啟動。
+
+### 新增一種音訊來源
+
+在 `livestt/audio.py` 實作 `AudioSource`，並在 `SOURCES` 與 `create_source()` 加一筆。
+`--source` 的選項與 `--list-devices` 的輸出會自動跟上。
 
 ## macOS 平台陷阱
 
@@ -111,6 +122,36 @@ callback 永遠不會被送達，症狀是每一句都逾時三十秒。
 `requestAuthorization:` 的 handler 不使用 `queue` 屬性，官方文件也只說「不保證在主佇列」。
 所以 `_pump()` 仍然保留給授權用：它一邊抽送目前執行緒的 run loop、一邊等
 `threading.Event`，兩種送達方式都接得住。
+
+**「螢幕與系統音訊錄製」權限改完要完全重開終端機。**
+macOS 只在行程啟動時讀一次 TCC 設定。使用者在系統設定裡勾好之後，開新視窗、
+新分頁、重跑指令都還是會被拒。`systemaudio.PERMISSION_HELP` 把這件事寫清楚了，
+回報權限錯誤時不要只說「請開啟權限」。
+
+**ScreenCaptureKit 沒有「只擷取聲音」的模式。**
+`SCStream` 一定要綁一個顯示器與畫面尺寸，聲音是附帶的。我們把畫面壓到 2×2、
+更新率壓到一秒一張，成本可以忽略 —— 不要因為「反正不看畫面」就把 `setWidth_`
+之類的設定拿掉，那會用到預設的全螢幕尺寸，白白耗掉 GPU。
+
+**非交錯音訊的 CMBlockBuffer 是「整個左聲道接著整個右聲道」。**
+不是左右左右交錯。ASBD 的 `mFormatFlags` 有 `kAudioFormatFlagIsNonInterleaved`（1 << 5）
+時要用 plane-major 去解讀，`systemaudio.to_mono()` 負責這件事，
+`tests/test_audio.py` 有守住它。搞錯不會報錯，只會讓兩個聲道互相污染。
+
+**`stream:didOutputSampleBuffer:ofType:` 的 `ofType:` 是 NSInteger，不是物件。**
+PyObjC 要靠 `objc.protocolNamed("SCStreamOutput")` 才知道型別；沒有宣告 protocol
+的話它會把那個整數當成物件指標解讀。同名的 ObjC 類別也不能註冊兩次，
+所以 `_stream_classes()` 會快取結果。
+
+**SCStream 的 callback 佇列要自己指定。**
+與 `SFSpeechRecognizer` 同一類問題：我們的錄音執行緒沒有 run loop 在跑。
+用 `libdispatch.dispatch_queue_create()` 開一條自己的序列佇列傳給
+`addStreamOutput:type:sampleHandlerQueue:error:`。
+
+**降取樣一定要先低通。**
+48 kHz 的影片與音樂在 8 kHz 以上有大量成分，直接抽樣會整片折回語音頻段。
+`audio.Resampler` 的濾波器狀態與取樣相位都跨 chunk 保留，
+少了這個每塊音訊的接縫都會有一聲喀嗒。
 
 **`varlist.as_buffer(n)` 的 `n` 是元素個數，不是位元組數。**
 `AVAudioPCMBuffer` 寫入時 `as_buffer(frames)` 才對，寫 `frames * 4` 會拿到四倍大的視圖。
@@ -265,6 +306,7 @@ SRT **不能寫註解標頭**，否則播放器解析會失敗，`TranscriptWrit
 
 - `test_vad.py` 用假的偵測器控制「哪個 frame 是語音」，測的是斷句狀態機
 - `test_pipeline.py` 用假的麥克風與引擎，測執行緒、佇列滿載、錯誤處理、關閉流程、雙語
+- `test_audio.py` 測重取樣（含抗混疊與跨 chunk 接縫）、聲道混音、來源選擇
 - `test_cli.py` 測參數解析、引擎選擇、簡繁轉換判斷、查詢指令
 - `test_translate.py` 測提示組裝、LLM 輸出清理、術語表解析
 - `test_overlay_style.py` 測字幕視窗的樣式計算與顏色解析（不建立視窗）
