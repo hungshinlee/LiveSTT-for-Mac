@@ -16,7 +16,7 @@ from livestt.audio import (
     float32_to_pcm,
     pcm_to_float32,
 )
-from livestt.systemaudio import to_mono
+from livestt.systemaudio import format_of, to_mono
 
 
 def tone(freq: float, seconds: float, rate: int) -> np.ndarray:
@@ -107,6 +107,32 @@ def test_non_interleaved_is_plane_major_not_alternating():
     assert np.array_equal(to_mono(raw, 2, non_interleaved=True), np.full(3, 0.5, np.float32))
     # 同一筆資料當成交錯來讀會得到完全不同的結果
     assert not np.array_equal(to_mono(raw, 2, non_interleaved=False), np.full(3, 0.5, np.float32))
+
+
+def test_format_reads_both_shapes_pyobjc_returns():
+    """ASBD 有時是具名結構、有時是純 tuple，取決於哪個引擎間接 import 了 CoreAudio。
+
+    這個差異會讓「換個引擎就壞掉」，所以兩種形式都要測。
+    tuple 裡的值是 SCStream 實際送來的：48 kHz、float32、非交錯立體聲。
+    """
+    plain = (48000.0, 1819304813, 41, 4, 1, 4, 2, 32, 0)
+    assert format_of(plain) == (48000, 2, 32, True)
+
+    CoreAudio = pytest.importorskip("CoreAudio")
+    struct = CoreAudio.AudioStreamBasicDescription(
+        mSampleRate=48000.0, mFormatFlags=41, mChannelsPerFrame=2, mBitsPerChannel=32
+    )
+    assert format_of(struct) == (48000, 2, 32, True)
+
+
+def test_format_detects_interleaved():
+    interleaved = (44100.0, 1819304813, 0x9, 4, 1, 4, 2, 16, 0)
+    assert format_of(interleaved) == (44100, 2, 16, False)
+
+
+def test_format_rejects_a_missing_description():
+    with pytest.raises(AudioError, match="讀不到音訊格式描述"):
+        format_of(None)
 
 
 def test_mono_input_passes_through():

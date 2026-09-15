@@ -21,6 +21,10 @@ SCStream 一定要綁一個顯示器與畫面尺寸，聲音是附帶的。我�
 PyObjC 要靠 `SCStreamOutput` protocol 才知道這件事；沒有宣告 protocol 的話
 它會把那個整數當成物件指標解讀。
 
+**ASBD 有時是具名結構、有時是純 tuple。**
+取決於 `CoreAudio` 模組有沒有被 import 過，而那又取決於使用者選了哪個引擎。
+`format_of()` 一律用位置取值，不要改回屬性存取。
+
 **音訊是 48 kHz、float32、非交錯的立體聲。**
 pipeline 要的是 16 kHz 單聲道 16-bit PCM，所以降頻與混音在這裡做完。
 非交錯的 CMBlockBuffer 是「整個左聲道接著整個右聲道」，不是左右交錯。
@@ -51,6 +55,13 @@ MAX_BLOCKS = 128
 #: AudioStreamBasicDescription 的格式旗標（CoreAudioBaseTypes.h）
 _FLAG_IS_FLOAT = 1 << 0
 _FLAG_IS_NON_INTERLEAVED = 1 << 5
+
+#: ASBD 的欄位位置，順序同 CoreAudioBaseTypes.h 的宣告。
+#: 不用屬性名的理由見 format_of()。
+_ASBD_SAMPLE_RATE = 0
+_ASBD_FORMAT_FLAGS = 2
+_ASBD_CHANNELS_PER_FRAME = 6
+_ASBD_BITS_PER_CHANNEL = 7
 
 PERMISSION_HELP = (
     "沒有「螢幕與系統音訊錄製」權限，無法擷取系統音訊。\n"
@@ -104,6 +115,25 @@ def shareable_content():
     return content
 
 
+def format_of(asbd) -> tuple[int, int, int, bool]:
+    """從 ASBD 讀出 (取樣率, 聲道數, 位元深度, 是否非交錯)。
+
+    **一律用位置取值，不要改成 `asbd.mChannelsPerFrame`。**
+    PyObjC 只有在 `CoreAudio` 模組被 import 過之後，才會把 ASBD 包成具名結構；
+    沒有的話同一個函式回傳的是純 tuple，屬性存取會直接爆掉。而 `CoreAudio`
+    有沒有被 import 到，取決於使用者選了哪個引擎（`apple` 會，`whisper` 不會），
+    所以這是個會「換個引擎就壞掉」的陷阱。位置取值對兩種形式都成立。
+    """
+    try:
+        rate = int(asbd[_ASBD_SAMPLE_RATE])
+        flags = int(asbd[_ASBD_FORMAT_FLAGS])
+        channels = max(1, int(asbd[_ASBD_CHANNELS_PER_FRAME]))
+        bits = int(asbd[_ASBD_BITS_PER_CHANNEL])
+    except (TypeError, IndexError, ValueError) as exc:
+        raise AudioError(f"讀不到音訊格式描述（asbd={asbd!r}）") from exc
+    return rate, channels, bits, bool(flags & _FLAG_IS_NON_INTERLEAVED)
+
+
 def to_mono(raw: np.ndarray, channels: int, non_interleaved: bool) -> np.ndarray:
     """把 CMBlockBuffer 裡的樣本混成單聲道。
 
@@ -125,9 +155,9 @@ def mono_samples(sample_buffer) -> tuple[np.ndarray, int]:
     import CoreMedia as CM
 
     description = CM.CMSampleBufferGetFormatDescription(sample_buffer)
-    asbd = CM.CMAudioFormatDescriptionGetStreamBasicDescription(description)
-    if asbd is None:
-        raise AudioError("CMSampleBuffer 沒有音訊格式描述")
+    rate, channels, bits, non_interleaved = format_of(
+        CM.CMAudioFormatDescriptionGetStreamBasicDescription(description)
+    )
 
     block = CM.CMSampleBufferGetDataBuffer(sample_buffer)
     if block is None:
@@ -137,21 +167,14 @@ def mono_samples(sample_buffer) -> tuple[np.ndarray, int]:
     if status != 0:
         raise AudioError(f"讀取 CMBlockBuffer 失敗（status={status}）")
 
-    channels = max(1, int(asbd.mChannelsPerFrame))
-    flags = int(asbd.mFormatFlags)
-
-    if flags & _FLAG_IS_FLOAT and int(asbd.mBitsPerChannel) == 32:
+    if bits == 32:
         raw = np.frombuffer(data, dtype=np.float32)
-    elif int(asbd.mBitsPerChannel) == 16:
+    elif bits == 16:
         raw = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
     else:
-        raise AudioError(
-            f"不支援的系統音訊格式：{asbd.mBitsPerChannel} bit，"
-            f"flags=0x{flags:x}"
-        )
+        raise AudioError(f"不支援的系統音訊格式：{bits} bit、{channels} 聲道")
 
-    mono = to_mono(raw, channels, bool(flags & _FLAG_IS_NON_INTERLEAVED))
-    return mono, int(asbd.mSampleRate)
+    return to_mono(raw, channels, non_interleaved), rate
 
 
 _objc_classes = None

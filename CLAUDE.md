@@ -138,6 +138,15 @@ macOS 只在行程啟動時讀一次 TCC 設定。使用者在系統設定裡勾
 時要用 plane-major 去解讀，`systemaudio.to_mono()` 負責這件事，
 `tests/test_audio.py` 有守住它。搞錯不會報錯，只會讓兩個聲道互相污染。
 
+**`AudioStreamBasicDescription` 有時是具名結構、有時是純 tuple。**
+PyObjC 要 `CoreAudio` 模組被 import 過，才會註冊這個 struct 的包裝；沒有的話
+`CMAudioFormatDescriptionGetStreamBasicDescription()` 回傳的是純 tuple，
+屬性存取（`asbd.mChannelsPerFrame`）會直接爆掉。而 `CoreAudio` 有沒有被 import 到
+**取決於使用者選了哪個引擎** —— `apple` 經 AVFoundation 會，`whisper` 不會。
+症狀是「用 apple 好好的，換成 whisper 就說系統音訊解碼失敗」。
+`systemaudio.format_of()` 因此一律用位置取值（欄位順序見 CoreAudioBaseTypes.h），
+兩種形式都成立，不要改回屬性存取。`tests/test_audio.py` 兩種形式都測了。
+
 **`stream:didOutputSampleBuffer:ofType:` 的 `ofType:` 是 NSInteger，不是物件。**
 PyObjC 要靠 `objc.protocolNamed("SCStreamOutput")` 才知道型別；沒有宣告 protocol
 的話它會把那個整數當成物件指標解讀。同名的 ObjC 類別也不能註冊兩次，

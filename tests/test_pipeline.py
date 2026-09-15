@@ -16,11 +16,16 @@ class FakeMicrophone:
     """吐出固定 frame 的假麥克風，模擬真實裝置持續供應音訊。"""
 
     released = False
+    opened = False
 
-    def __init__(self, device=None):
+    def __init__(self, device=None, open_delay=0.0):
+        self.open_delay = open_delay
         FakeMicrophone.released = False
+        FakeMicrophone.opened = False
 
     def __enter__(self):
+        time.sleep(self.open_delay)
+        FakeMicrophone.opened = True
         return self
 
     def __exit__(self, *exc_info):
@@ -123,6 +128,23 @@ def test_uses_the_audio_source_it_was_given():
 
     assert FakeMicrophone.released  # 用完一定要關掉
     assert not sink.errors
+
+
+def test_ready_status_waits_for_the_source_to_open():
+    """系統音訊要一兩秒才會開好，太早報「等待說話」會讓第一句話掉光。"""
+    sink = RecordingSink()
+    pipe = Pipeline(CountingEngine(), sink, VADConfig(),
+                    source=FakeMicrophone(open_delay=0.3))
+    pipe.start()
+
+    assert run_until(lambda: "⏳ 正在開啟音訊來源…" in sink.statuses)
+    assert "🎤 等待說話…" not in sink.statuses  # 來源還沒開好
+
+    assert run_until(lambda: "🎤 等待說話…" in sink.statuses)
+    assert FakeMicrophone.opened
+
+    pipe.stop()
+    pipe.wait(timeout=3.0)
 
 
 def test_applies_traditional_conversion(monkeypatch):

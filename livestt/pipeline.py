@@ -105,7 +105,9 @@ class Pipeline:
             return
 
         self._ready.set()
-        self.sink.on_status("🎤 等待說話…")
+        # 「可以開始了」要等音訊來源真的開好才說 —— 系統音訊的 SCStream
+        # 要一兩秒才會送出第一塊音訊，太早報就緒會讓使用者講的第一句話掉光
+        self.sink.on_status("⏳ 正在開啟音訊來源…")
 
         while not self._stop.is_set():
             try:
@@ -156,6 +158,7 @@ class Pipeline:
         self._started_at = time.monotonic()
         try:
             with self.source as source:
+                self.sink.on_status("🎤 等待說話…")
                 for chunk in source.chunks():
                     if self._stop.is_set():
                         return
